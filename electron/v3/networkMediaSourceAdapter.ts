@@ -1,6 +1,9 @@
 import path from 'node:path'
 
 import { runRuntimeProcessCollectOutput } from '../core/runtimeProcess.js'
+import { withIsolatedCookieFile } from '../core/isolatedCookieFile.js'
+import type { NetworkAuthenticationVerifier } from './bilibiliAuthentication.js'
+import { assertAuthenticatedMediaAvailable, authenticationProblemFromEvidence } from './authenticationProblems.js'
 
 import type {
   DeliverableRecipeOption,
@@ -37,6 +40,7 @@ export type NetworkVideoQualityOptions = Readonly<{
   authenticationCookiePath?: string | null
   deno?: ManagedRuntimeReference | null
   signal?: AbortSignal
+  verifyAuthentication?: NetworkAuthenticationVerifier
 }>
 
 export type NetworkMediaSourceInspectionResult = Readonly<{
@@ -91,7 +95,6 @@ function createMetadataArgs(
     '--no-playlist',
     '--skip-download',
     '--dump-single-json',
-    '--no-warnings',
     ...(options.deno ? ['--js-runtimes', `deno:${options.deno.command}`] : []),
     ...(options.authenticationCookiePath ? ['--cookies', options.authenticationCookiePath] : []),
     sourceUrl,
@@ -104,15 +107,23 @@ async function readNetworkMetadataOutput(
   options: NetworkVideoQualityOptions,
   timeoutMs: number,
 ): Promise<string> {
-  const result = await runRuntimeProcessCollectOutput({
-    command: ytDlp.command,
-    args: createMetadataArgs(sourceUrl, ytDlp, options),
-    timeoutMs,
-    workingDirectory: path.dirname(ytDlp.command),
-    env: process.env,
-    signal: options.signal,
+  return await withIsolatedCookieFile(options.authenticationCookiePath, async (cookiePath) => {
+    options.signal?.throwIfAborted()
+    await options.verifyAuthentication?.(sourceUrl, cookiePath, options.signal)
+    const result = await runRuntimeProcessCollectOutput({
+      command: ytDlp.command,
+      args: createMetadataArgs(sourceUrl, ytDlp, { ...options, authenticationCookiePath: cookiePath }),
+      timeoutMs,
+      workingDirectory: path.dirname(ytDlp.command),
+      env: process.env,
+      signal: options.signal,
+    }).catch((error: unknown) => {
+      assertAuthenticatedMediaAvailable(error)
+      throw error
+    })
+    assertAuthenticatedMediaAvailable(result.stderr)
+    return result.stdout.trim()
   })
-  return result.stdout.trim()
 }
 
 function parseNetworkMetadata(output: string): YtDlpMetadata {
@@ -177,9 +188,10 @@ export async function inspectNetworkMediaSourceWithQualities(
   let metadataOutput: string
   try {
     metadataOutput = await readNetworkMetadataOutput(sourceUrl, ytDlp, options, 45_000)
-  } catch {
+  } catch (error) {
+    const authenticationProblem = authenticationProblemFromEvidence(error)
     return Object.freeze({
-      inspection: networkSourceProblem(
+      inspection: authenticationProblem ? Object.freeze({ status: 'needs-attention' as const, problem: authenticationProblem }) : networkSourceProblem(
         'source.network.inspect-failed',
         'problem.networkInspectionFailed.title',
         'problem.networkInspectionFailed.summary',

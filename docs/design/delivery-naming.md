@@ -10,7 +10,7 @@
 
 - Preserve meaningful Unicode and normalize consistently.
 - Remove or replace control characters and platform-prohibited filename characters.
-- Guard Windows reserved device names, trailing spaces, and trailing dots.
+- Reject directory-only names, replace slash and colon separators, and trim surrounding whitespace; preserve other punctuation allowed by macOS.
 - Apply a destination-aware path budget, shortening the title before stable identity or extension.
 - Resolve and validate the destination in the main process as a writable filesystem location.
 

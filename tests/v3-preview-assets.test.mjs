@@ -132,16 +132,6 @@ test('the production master owns every committed vector derivative', () => {
   assert.match(readFileSync('build/readme-hero.svg', 'utf8'), new RegExp(`data-master-sha256="${digest}"`, 'u'))
 })
 
-test('the Windows icon pipeline is dependency-free and preserves multiple native sizes', () => {
-  const pipeline = readFileSync('scripts/build-media-dock-windows-icon.py', 'utf8')
-  assert.doesNotMatch(pipeline, /\bPIL\b|\bPillow\b/u)
-  const icon = readFileSync('build/icon.ico')
-  assert.equal(icon.readUInt16LE(0), 0)
-  assert.equal(icon.readUInt16LE(2), 1)
-  const imageCount = icon.readUInt16LE(4)
-  assert.ok(imageCount >= 5, `expected at least five ICO sizes, received ${imageCount}`)
-})
-
 test('the v3 shell exposes the bilingual Media Dock chapter and QIDU signature', () => {
   const messages = readFileSync('src/v3/messages.ts', 'utf8')
   const appSource = readFileSync('src/v3/MediaDockV3App.tsx', 'utf8')

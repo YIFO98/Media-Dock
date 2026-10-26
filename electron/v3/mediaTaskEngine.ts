@@ -6,6 +6,9 @@ import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
 import { runRuntimeProcessCollectOutput } from '../core/runtimeProcess.js'
+import { withIsolatedCookieFile } from '../core/isolatedCookieFile.js'
+import type { NetworkAuthenticationVerifier } from './bilibiliAuthentication.js'
+import { assertAuthenticatedMediaAvailable, authenticationProblemFromEvidence } from './authenticationProblems.js'
 import {
   authenticationServiceMatches,
   copyAuthenticationPackage,
@@ -264,6 +267,7 @@ export type MediaTaskEngine = Readonly<{
   clearTaskHistory(): Promise<WorkspaceSnapshot>
   subscribeWorkspace(listener: (snapshot: WorkspaceSnapshot) => void): () => void
   getWorkspaceSnapshot(): WorkspaceSnapshot
+  hasActiveWork(): boolean
   getTaskDiagnosticEvidence(taskId: string): TaskDiagnosticEvidence | null
   shutdown(): Promise<void>
   close(): void
@@ -278,6 +282,7 @@ export type CreateMediaTaskEngineOptions = Readonly<{
     deno?: ManagedRuntimeReference
   }>
   resolveCollection?: NetworkCollectionResolver
+  verifyAuthentication?: NetworkAuthenticationVerifier
   idFactory?: (kind: 'task' | 'task-batch' | 'deliverable' | 'authentication-profile') => string
   now?: () => Date
 }>
@@ -596,15 +601,6 @@ function requiredRuntimeProblem(): ProblemSnapshot {
   })
 }
 
-function hasExplicitExpiredCookieEvidence(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return [
-    /\b(?:provided\s+)?(?:[a-z0-9_-]+\s+){0,3}cookies?\s+(?:are|is)\s+(?:no longer valid|invalid|expired)\b/iu,
-    /\b(?:your\s+)?(?:[a-z0-9_-]+\s+){0,3}cookies?\s+have\s+(?:expired|become invalid)\b/iu,
-    /\bfresh cookies?\s+(?:are|is)\s+(?:needed|required)\b/iu,
-  ].some((pattern) => pattern.test(message))
-}
-
 function isYoutubeService(value: string): boolean {
   return value.toLowerCase().replace(/[^a-z0-9]+/gu, ' ').split(/\s+/u).includes('youtube')
 }
@@ -625,6 +621,8 @@ function taskExecutionProblem(
   acquisition: AcquisitionSnapshot | null = null,
 ): ProblemSnapshot {
   const isNetworkTask = task.plan.source.kind === 'network-url'
+  const authenticationProblem = isNetworkTask ? authenticationProblemFromEvidence(error, 'acquiring') : null
+  if (authenticationProblem) return authenticationProblem
   if (isNetworkTask && hasTlsInterruptionEvidence(error)) {
     return Object.freeze({
       code: 'network.tls-interrupted',
@@ -634,18 +632,6 @@ function taskExecutionProblem(
       summaryKey: 'problem.networkTlsInterrupted.summary',
       actions: Object.freeze([
         Object.freeze({ id: 'retry-task', kind: 'retry-task' }),
-      ]),
-    })
-  }
-  if (isNetworkTask && task.plan.authenticationProfileId && hasExplicitExpiredCookieEvidence(error)) {
-    return Object.freeze({
-      code: 'authentication.cookies-expired',
-      category: 'authentication',
-      stage: 'acquiring',
-      titleKey: 'problem.authenticationCookiesExpired.title',
-      summaryKey: 'problem.authenticationCookiesExpired.summary',
-      actions: Object.freeze([
-        Object.freeze({ id: 'update-authentication', kind: 'update-authentication' }),
       ]),
     })
   }
@@ -915,6 +901,14 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
   const taskProgressFormatIds = new Map<string, string>()
   const taskProgressPublishedAt = new Map<string, number>()
   const pendingQualityPreviews = new Map<string, readonly NetworkVideoQualityOption[]>()
+  const sourceOperations = new Set<Promise<unknown>>()
+
+  function trackSourceOperation<T>(work: () => Promise<T>): Promise<T> {
+    const operation = work()
+    sourceOperations.add(operation)
+    void operation.finally(() => sourceOperations.delete(operation)).catch(() => undefined)
+    return operation
+  }
 
   function qualityPreviewKey(
     source: InspectedNetworkSource,
@@ -1083,67 +1077,73 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
 
   const engine: MediaTaskEngine = Object.freeze({
     async inspectSource(input: SourceInput): Promise<SourceInspection> {
-      if (isClosed) {
-        throw new Error('Media Task Engine is closed.')
-      }
+      return await trackSourceOperation(async () => {
+        if (isClosed) {
+          throw new Error('Media Task Engine is closed.')
+        }
 
-      if (input.kind === 'local-file') {
-        return await inspectLocalMediaSource(
-          input.path,
-          options.managedRuntimes?.ffprobe?.command ?? 'ffprobe',
-          shutdownController.signal,
-        )
-      }
+        if (input.kind === 'local-file') {
+          return await inspectLocalMediaSource(
+            input.path,
+            options.managedRuntimes?.ffprobe?.command ?? 'ffprobe',
+            shutdownController.signal,
+          )
+        }
 
-      if (options.resolveCollection) {
-        const collectionInspection = await inspectNetworkCollectionSource(input.url, options.resolveCollection)
-        if (collectionInspection) return collectionInspection
-      }
+        if (options.resolveCollection) {
+          const collectionInspection = await inspectNetworkCollectionSource(input.url, options.resolveCollection)
+          if (collectionInspection) return collectionInspection
+        }
 
-      const ytDlp = options.managedRuntimes?.ytDlp
-      if (!ytDlp) {
-        throw new Error('The yt-dlp managed runtime is required to inspect a network source.')
-      }
-      const sourceService = inferAuthenticationServiceFromUrl(input.url)
-      const authenticationProfile = sourceService ? findMatchingAuthenticationProfile(sourceService) : null
-      const authenticationCookiePath = authenticationProfile && sourceService
-        ? resolveAuthenticationCookiePath(authenticationProfile.id, sourceService)
-        : null
-      const result = await inspectNetworkMediaSourceWithQualities(input.url, ytDlp, {
-        authenticationCookiePath,
-        deno: options.managedRuntimes?.deno,
-        signal: shutdownController.signal,
+        const ytDlp = options.managedRuntimes?.ytDlp
+        if (!ytDlp) {
+          throw new Error('The yt-dlp managed runtime is required to inspect a network source.')
+        }
+        const sourceService = inferAuthenticationServiceFromUrl(input.url)
+        const authenticationProfile = sourceService ? findMatchingAuthenticationProfile(sourceService) : null
+        const authenticationCookiePath = authenticationProfile && sourceService
+          ? resolveAuthenticationCookiePath(authenticationProfile.id, sourceService)
+          : null
+        const result = await inspectNetworkMediaSourceWithQualities(input.url, ytDlp, {
+          authenticationCookiePath,
+          verifyAuthentication: options.verifyAuthentication,
+          deno: options.managedRuntimes?.deno,
+          signal: shutdownController.signal,
+        })
+        if (result.inspection.status === 'ready' && result.inspection.source.kind === 'network-url' && result.qualityOptions) {
+          rememberQualityPreview(
+            qualityPreviewKey(result.inspection.source, authenticationProfile?.id ?? null),
+            result.qualityOptions,
+          )
+        }
+        return result.inspection
       })
-      if (result.inspection.status === 'ready' && result.inspection.source.kind === 'network-url' && result.qualityOptions) {
-        rememberQualityPreview(
-          qualityPreviewKey(result.inspection.source, authenticationProfile?.id ?? null),
-          result.qualityOptions,
-        )
-      }
-      return result.inspection
     },
 
     async inspectVideoQualities(source: InspectedNetworkSource): Promise<VideoQualityInspection> {
-      if (isClosed) throw new Error('Media Task Engine is closed.')
-      const ytDlp = options.managedRuntimes?.ytDlp
-      if (!ytDlp) throw new Error('The yt-dlp managed runtime is required to inspect video qualities.')
-      const authenticationProfile = findMatchingAuthenticationProfile(source.serviceName)
-      const authenticationCookiePath = authenticationProfile
-        ? resolveAuthenticationCookiePath(authenticationProfile.id, source.serviceName)
-        : null
-      const previewKey = qualityPreviewKey(source, authenticationProfile?.id ?? null)
-      const cachedQualityOptions = pendingQualityPreviews.get(previewKey)
-      if (cachedQualityOptions) pendingQualityPreviews.delete(previewKey)
-      const qualityOptions = cachedQualityOptions ?? await inspectNetworkVideoQualities(source.locator, ytDlp, {
-        authenticationCookiePath,
-        deno: options.managedRuntimes?.deno,
-        signal: shutdownController.signal,
-      })
-      return Object.freeze({
-        availableHeights: Object.freeze(qualityOptions.map((option) => option.height)),
-        qualityOptions,
-        authenticationProfileId: authenticationProfile?.id ?? null,
-        authenticationProfileDisplayName: authenticationProfile?.displayName ?? null,
+      return await trackSourceOperation(async () => {
+        if (isClosed) throw new Error('Media Task Engine is closed.')
+        const ytDlp = options.managedRuntimes?.ytDlp
+        if (!ytDlp) throw new Error('The yt-dlp managed runtime is required to inspect video qualities.')
+        const authenticationProfile = findMatchingAuthenticationProfile(source.serviceName)
+        const authenticationCookiePath = authenticationProfile
+          ? resolveAuthenticationCookiePath(authenticationProfile.id, source.serviceName)
+          : null
+        const previewKey = qualityPreviewKey(source, authenticationProfile?.id ?? null)
+        const cachedQualityOptions = pendingQualityPreviews.get(previewKey)
+        if (cachedQualityOptions) pendingQualityPreviews.delete(previewKey)
+        const qualityOptions = cachedQualityOptions ?? await inspectNetworkVideoQualities(source.locator, ytDlp, {
+          authenticationCookiePath,
+          verifyAuthentication: options.verifyAuthentication,
+          deno: options.managedRuntimes?.deno,
+          signal: shutdownController.signal,
+        })
+        return Object.freeze({
+          availableHeights: Object.freeze(qualityOptions.map((option) => option.height)),
+          qualityOptions,
+          authenticationProfileId: authenticationProfile?.id ?? null,
+          authenticationProfileDisplayName: authenticationProfile?.displayName ?? null,
+        })
       })
     },
 
@@ -1261,6 +1261,7 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
           console.warn(`Could not remove replaced Authentication Profile ${profile.id}:`, error)
         }
       }
+      pendingQualityPreviews.clear()
       return publishWorkspace()
     },
 
@@ -1520,43 +1521,49 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
             }
           }
           const runNetworkAcquisition = async (compatibilityArgs: readonly string[] = []) => {
-            await runRuntimeProcessCollectOutput({
-              command: ytDlp.command,
-              args: [
-                ...(ytDlp.argsPrefix ?? []),
-                '--ignore-config',
-                '--no-update',
-                '--no-playlist',
-                '--progress',
-                '--newline',
-                '--progress-template',
-                'download:PROGRESS|%(info.format_id)s|%(info.vcodec)s|%(info.acodec)s|%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
-                '--ffmpeg-location',
-                path.isAbsolute(ffmpeg.command) ? path.dirname(ffmpeg.command) : ffmpeg.command,
-                '-f',
-                task.plan.videoQuality?.mode === 'max-height'
-                  ? `bv*[height<=${task.plan.videoQuality.height}]+ba/b[height<=${task.plan.videoQuality.height}]`
-                  : 'bv*+ba/b',
-                '--merge-output-format',
-                'mp4',
-                ...(deno ? ['--js-runtimes', `deno:${deno.command}`] : []),
-                ...(authenticationCookiePath ? ['--cookies', authenticationCookiePath] : []),
-                ...compatibilityArgs,
-                '--output',
-                stagedDeliveryPath,
-                task.plan.source.locator,
-              ],
-              timeoutMs: 30 * 60_000,
-              workingDirectory: taskStagingDirectory,
-              env: process.env,
-              signal: shutdownController.signal,
-              onOutputLine: handleYtDlpOutputLine,
+            await withIsolatedCookieFile(authenticationCookiePath, async (cookiePath) => {
+              shutdownController.signal.throwIfAborted()
+              await options.verifyAuthentication?.(task.plan.source.locator, cookiePath, shutdownController.signal)
+              const result = await runRuntimeProcessCollectOutput({
+                command: ytDlp.command,
+                args: [
+                  ...(ytDlp.argsPrefix ?? []),
+                  '--ignore-config',
+                  '--no-update',
+                  '--no-playlist',
+                  '--abort-on-unavailable-fragments',
+                  '--progress',
+                  '--newline',
+                  '--progress-template',
+                  'download:PROGRESS|%(info.format_id)s|%(info.vcodec)s|%(info.acodec)s|%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
+                  '--ffmpeg-location',
+                  path.isAbsolute(ffmpeg.command) ? path.dirname(ffmpeg.command) : ffmpeg.command,
+                  '-f',
+                  task.plan.videoQuality?.mode === 'max-height'
+                    ? `bv*[height<=${task.plan.videoQuality.height}]+ba/b[height<=${task.plan.videoQuality.height}]`
+                    : 'bv*+ba/b',
+                  '--merge-output-format',
+                  'mp4',
+                  ...(deno ? ['--js-runtimes', `deno:${deno.command}`] : []),
+                  ...(cookiePath ? ['--cookies', cookiePath] : []),
+                  ...compatibilityArgs,
+                  '--output',
+                  stagedDeliveryPath,
+                  task.plan.source.locator,
+                ],
+                timeoutMs: 30 * 60_000,
+                workingDirectory: taskStagingDirectory,
+                env: process.env,
+                signal: shutdownController.signal,
+                onOutputLine: handleYtDlpOutputLine,
+              })
+              assertAuthenticatedMediaAvailable(result.stderr)
             })
           }
           try {
             await runNetworkAcquisition()
           } catch (error) {
-            if (!isYoutubeService(task.plan.source.serviceName) || !hasYoutubeForbiddenAcquisitionEvidence(error)) {
+            if (authenticationProblemFromEvidence(error) || !isYoutubeService(task.plan.source.serviceName) || !hasYoutubeForbiddenAcquisitionEvidence(error)) {
               throw error
             }
             taskProgresses.delete(taskId)
@@ -1760,6 +1767,12 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
       return readWorkspaceSnapshot(database, taskProgresses)
     },
 
+    hasActiveWork(): boolean {
+      if (isClosed || isShuttingDown) return true
+      return runningTasks.size > 0 || sourceOperations.size > 0
+        || readWorkspaceSnapshot(database, taskProgresses).tasks.some((task) => task.state === 'queued' || task.state === 'running')
+    },
+
     getTaskDiagnosticEvidence(taskId: string): TaskDiagnosticEvidence | null {
       if (isClosed) throw new Error('Media Task Engine is closed.')
       findTask(database, taskId)
@@ -1778,7 +1791,7 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
       isShuttingDown = true
       shutdownController.abort()
       shutdownPromise = (async () => {
-        await Promise.allSettled([...runningTasks])
+        await Promise.allSettled([...runningTasks, ...sourceOperations])
         database.close()
         workspaceListeners.clear()
         taskProgresses.clear()
@@ -1795,7 +1808,7 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
         return
       }
 
-      if (runningTasks.size > 0) {
+      if (runningTasks.size > 0 || sourceOperations.size > 0) {
         throw new Error('Media Task Engine has active work; call shutdown() and await it before closing.')
       }
 

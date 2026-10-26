@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/Yifo98/Media-Dock/releases/latest"><img alt="Stable release" src="https://img.shields.io/github/v/release/Yifo98/Media-Dock?display_name=tag&label=stable&sort=semver"></a>
-  <a href="https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.1"><img alt="Media Dock 3" src="https://img.shields.io/badge/Media%20Dock-3.0.1-c7b9f3"></a>
-  <img alt="Platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-73cbd7">
+  <a href="https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.2"><img alt="Media Dock 3" src="https://img.shields.io/badge/Media%20Dock-3.0.2-c7b9f3"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS-73cbd7">
   <img alt="Local first" src="https://img.shields.io/badge/privacy-local--first-24313b">
 </p>
 
@@ -15,10 +15,12 @@ Media Dock · 泊是器度 QIDU 旗下的本地优先媒体获取、音画合并
 
 | 版本线 | 状态 | 适合谁 |
 | --- | --- | --- |
-| 3.0.1 | 正式源码版本 | 使用全新工作台、任务模型、应用内升级与 3.0 数据边界的用户 |
+| 3.0.4-preview.4 | 当前源码维护候选，仅 macOS | 需要刷新、重启与 Cookie 修复的用户 |
+| 3.0.2 | 既有稳定发布 | 使用 3.0 工作台、任务模型与独立数据目录的用户 |
+| [3.0.3](https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.3) | 已发布的兼容性预览 | 测试 YouTube 403 恢复与网络中断提示的用户 |
 | [2.1.2](https://github.com/Yifo98/Media-Dock/releases/tag/v2.1.2) | 旧版维护线 | 需要旧界面和旧数据布局的用户 |
 
-Media Dock 3 使用独立的 `Media Dock Data/v3/` 数据边界，不会改写 2.1.2 数据。当前公开便携包尚未接入商业代码签名，仍会明确标记为未签名预览；Windows Smart App Control 或 macOS Gatekeeper 可能在应用启动前拦截它。BAT 不能替代 Windows 代码签名：即使批处理文件本身能够打开，它启动的 Electron、yt-dlp、Deno、FFmpeg 和 DLL 仍会被系统策略逐项检查。
+Media Dock 3 使用独立的 `Media Dock Data/v3/` 数据边界，不会改写 2.1.2 数据。从 `3.0.4-preview.4` 起，当前代码只支持 macOS（Apple Silicon 与 Intel）。未签名、未公证的便携包仍标记为开发预览，可能被 macOS Gatekeeper 拦截。
 
 ## Media Dock 3 一览
 
@@ -44,21 +46,17 @@ Media Dock 3 使用独立的 `Media Dock Data/v3/` 数据边界，不会改写 2
 - **音画合并**：一次多选音频与视频，按媒体流、时长和时间轴配对，不依赖相似文件名。
 - **任务中心**：显示获取、处理、交付进度，完成后可直接打开所在位置。
 - **安全清理**：清理任务历史和临时缓存不会删除已经交付到保存位置的媒体。
+- **设置刷新与重启**：内核及登录信息可刷新本地状态；内核更新后可在应用内确认重启，有任务或更新进行时会阻止重启。
 - **诊断与支持**：导出经过脱敏的 TXT，保留系统、运行工具和问题证据，但排除 Cookie、凭证、完整链接参数、用户目录和媒体路径。
 
 ## 下载与运行
 
 前往 [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases)：
 
-- 下载 **3.0.1** 对应平台资产并完整解压。
-- Windows 只保留一个入口：`Media Dock.exe`。
+- 已有发布包请选择对应架构的 **macOS** 资产；本次 `3.0.4-preview.4` 更新通过源码启动器使用，尚未发布新安装包。
 - macOS 只保留一个入口：`Launch Media Dock.command`；应用运行组件收纳在 `core/Media Dock.app`。
 
 标准分享包由 `electron-builder` 生成，并在启动入口同级的 `Media Dock Data/` 保存任务数据、工具和缓存。带 `Unsigned` 标记的资产只供可接受系统安全提示的测试者；它不是已经取得平台信任的签名包。
-
-Windows 包不会附带一个声称能绕过 Smart App Control 的 BAT 启动器。若系统以 `VerifiedAndReputableDesktop` 拦截未签名程序，可靠的公开发布方案仍是 Authenticode 或 Microsoft Trusted Signing，并在启用 Smart App Control 的 Windows 11 环境验证最终 ZIP。
-
-未签名不等于 Windows 已检测到恶意软件；它表示当前版本没有可验证发布者身份的证书。Windows 允许启动后，签名缺失本身不会限制 Media Dock 功能。下载前的官方来源与 SHA-256 核对、隐私边界，以及 SmartScreen / Smart App Control 两类提示的安全处理方法，见 [Windows 安全提示与隐私说明](docs/release/windows-security-and-privacy.md)。
 
 ## MediaCookies
 
@@ -73,16 +71,18 @@ Windows 包不会附带一个声称能绕过 Smart App Control 的 BAT 启动器
 
 MediaCookies 不读取密码，也不会把 Cookie 上传到网络。
 
+当前 3.0.4 本地维护候选中，明确的 Cookie 失效或试看限制会提示更新登录资料，试看片段不会作为完整成品交付。更新 MediaCookies 后，画质与未开始的任务计划会自动刷新，无需重启应用；账号仍需拥有视频的完整观看权限。
+
 ## 本地开发
 
-要求：Node.js 24、npm，以及项目支持的 Electron 环境。
+要求：macOS（arm64 或 x64）、Node.js 24、npm。
 
 ```bash
-npm install
+npm ci --include=dev
 npm run launch:mac:v3
 ```
 
-项目外层的 `Launch Media Dock 3 Preview.command` 是 macOS 本地预览入口；它调用仓库内的 `scripts/launch-mac-v3-preview.sh`，并使用隔离的 v3 数据目录。仓库同时保留 `scripts/Launch Media Dock 3 Preview.command` 作为不含本机路径的迁移副本。
+项目外层的 `Launch Media Dock 3 Preview.command` 是 macOS 本地预览入口；缺失依赖时按锁文件自动恢复，不完整的 Electron 运行组件会尝试修复。它调用仓库内的 `scripts/launch-mac-v3-preview.sh`，并使用隔离的 v3 数据目录。仓库同时保留 `scripts/Launch Media Dock 3 Preview.command` 作为不含本机路径的迁移副本。
 
 ## 验证
 
@@ -92,7 +92,7 @@ npm run lint
 git diff --check
 ```
 
-发布候选还必须完成 [Media Dock 3 release gates](docs/release/3.0-release-gates.md)，特别是实际 Windows/macOS 打包资产、中文与空格路径、目录操作、MediaCookies 导入、运行时更新与诊断导出。
+发布候选还必须完成 [Media Dock 3 release gates](docs/release/3.0-release-gates.md)，特别是实际 macOS 打包资产、中文与空格路径、目录操作、MediaCookies 导入、运行时更新与诊断导出。
 
 ## OpenAI Build Week
 
@@ -100,6 +100,7 @@ git diff --check
 
 ## 文档
 
+- [3.0.4 本地维护候选与验证范围](docs/implementation/3.0.4-maintenance.md)
 - [3.0 product brief](docs/design/3.0-product-brief.md)
 - [Implementation sequence](docs/implementation/3.0-sequence.md)
 - [Release guide](docs/RELEASES.md)
@@ -117,10 +118,12 @@ Media Dock · 泊 is a QIDU local-first desktop workspace for acquiring public m
 
 | Channel | Status | Audience |
 | --- | --- | --- |
-| 3.0.1 | Stable source release | Users adopting the new workspace, in-app updates, task model, and isolated 3.0 data boundary |
+| 3.0.4-preview.4 | Current source preview, macOS only | Users testing settings refresh, restart and Cookie fixes |
+| 3.0.2 | Existing stable release | Users adopting the workspace, task model, and isolated 3.0 data boundary |
+| [3.0.3](https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.3) | Published compatibility preview | Users testing YouTube 403 recovery and network interruption guidance |
 | [2.1.2](https://github.com/Yifo98/Media-Dock/releases/tag/v2.1.2) | Legacy maintenance line | Users who still need the previous UI and data layout |
 
-Media Dock 3 owns the isolated `Media Dock Data/v3/` namespace and never rewrites 2.1.2 data. Current portable binaries are still explicitly labeled unsigned previews because the repository has no platform signing credentials; Smart App Control or Gatekeeper may block them before launch. A BAT file cannot replace Windows code signing: Electron, yt-dlp, Deno, FFmpeg, and their DLLs are still evaluated when launched through a batch wrapper.
+Media Dock 3 owns the isolated `Media Dock Data/v3/` namespace and never rewrites 2.1.2 data. Starting with `3.0.4-preview.4`, current source supports macOS only, on Apple Silicon and Intel. Unnotarized or unsigned packages remain developer previews and may be blocked by Gatekeeper.
 
 Watch the [16-second bilingual feature demo](docs/showcase/3.0.0/Media-Dock-3.0.0-demo.mp4), or download the complete media pack from the Release.
 
@@ -137,21 +140,18 @@ Watch the [16-second bilingual feature demo](docs/showcase/3.0.0/Media-Dock-3.0.
 
 ### Install
 
-Download the 3.0.1 asset for your platform from [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases) and extract the complete ZIP.
+Choose the macOS asset for your architecture from [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases). The `3.0.4-preview.4` changes are available through the source launcher; no new binary package has been published.
 
-- Windows: run the single root entry, `Media Dock.exe`.
 - macOS: run the single root entry, `Launch Media Dock.command`; the internal app runtime remains under `core/Media Dock.app`.
 
-Packages are produced by `electron-builder`; portable data stays in the sibling `Media Dock Data/` directory. Assets labeled `Unsigned` are controlled-test artifacts only. Smart App Control or Gatekeeper may block them before launch, so they are not general-public releases.
+Packages are produced by `electron-builder`; portable data stays in the sibling `Media Dock Data/` directory. Assets labeled `Unsigned` are controlled-test artifacts only. Gatekeeper may block them before launch, so they are not general-public releases.
 
-The Windows package intentionally has no BAT wrapper that claims to bypass Smart App Control. A publicly trusted build still requires Authenticode or Microsoft Trusted Signing and validation of the extracted ZIP on a Smart App Control-enabled Windows 11 target.
-
-Unsigned does not mean Windows detected malware; it means this build has no certificate that verifies its publisher identity. Once Windows permits startup, the missing signature does not limit Media Dock features. See [Windows security and privacy](docs/release/windows-security-and-privacy.md) for official-source and SHA-256 checks, local privacy boundaries, and safe handling of SmartScreen or Smart App Control prompts.
+In the local 3.0.4 maintenance candidate, explicit expired-Cookie and preview-only warnings block incomplete delivery and offer sign-in recovery. Importing fresh MediaCookies refreshes quality inspection and unstarted plans without restarting; the account must still have full-video access.
 
 ### Development and checks
 
 ```bash
-npm install
+npm ci --include=dev
 npm run launch:mac:v3
 npm test
 npm run lint

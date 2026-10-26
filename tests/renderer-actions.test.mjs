@@ -27,6 +27,12 @@ function assertRendererAction(action) {
   assert.match(output, /\[GREEN\]/)
 }
 
+for (const action of ['v3SettingsRefresh', 'v3RestartActions', 'v3RestartBusy', 'v3RuntimePartialFailure']) {
+  test(`3.0 Settings ${action} stays recoverable and protects active Media Tasks`, () => {
+    assertRendererAction(action)
+  })
+}
+
 for (const action of ['openPath', 'pickDirectory', 'pickDirectoryCancel', 'showItemInFolder', 'mediaPickDirectory', 'mediaOpenPath']) {
   test(`${action} failure remains recoverable in the rendered app`, () => {
     assertRendererAction(action)
@@ -147,6 +153,20 @@ test('3.0 reveals a completed deliverable from its Task Center row', () => {
 
 test('3.0 checks managed runtimes before offering official and mirror updates', () => {
   assertRendererAction('v3RuntimeCheck')
+})
+
+for (const action of ['v3CookieRefresh', 'v3PreviewRecovery', 'v3QualityAuthenticationRecovery']) {
+  test(`3.0 ${action} uses fresh Cookies without restarting the app`, () => {
+    assertRendererAction(action)
+  })
+}
+
+test('3.0 source and output pickers explain failures and recover on retry', () => {
+  assertRendererAction('v3PickerFailures')
+})
+
+test('3.0 offers a retry instead of replacing Cookies when the website login check is unavailable', () => {
+  assertRendererAction('v3LoginCheckUnavailable')
 })
 
 test('3.0 discloses and exports a sanitized support log from Settings', () => {

@@ -97,3 +97,14 @@ test('aborting a managed runtime terminates its complete process tree', async ()
     rmSync(rootDir, { recursive: true, force: true })
   }
 })
+
+test('shutdown also kills a descendant that ignores SIGTERM after its parent has exited', { timeout: 5000 }, async () => {
+  const controller = new AbortController()
+  const grandchildScript = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); process.stdout.write('ready\\n')"
+  const script = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}], {stdio:['ignore','inherit','inherit']}); setInterval(() => {}, 1000)`
+  await assert.rejects(runRuntimeProcessCollectOutput({
+    command: process.execPath, args: ['-e', script], timeoutMs: 3000,
+    workingDirectory: tmpdir(), env: process.env, signal: controller.signal,
+    onOutputLine: (line) => { if (line === 'ready') controller.abort() },
+  }), {name:'AbortError'})
+})

@@ -4,54 +4,25 @@ import { assertSafeLocalPath } from '../dist-electron/core/localPath.js'
 
 const existingPath = () => true
 
-test('accepts an existing Windows drive path', () => {
-  const targetPath = 'I:\\Media Dock Data\\cookies'
-
-  assert.equal(
-    assertSafeLocalPath(targetPath, { platform: 'win32', pathExists: existingPath }),
-    targetPath,
-  )
-})
-
-test('accepts an existing Windows UNC path', () => {
-  const targetPath = '\\\\media-server\\downloads'
-
-  assert.equal(
-    assertSafeLocalPath(targetPath, { platform: 'win32', pathExists: existingPath }),
-    targetPath,
-  )
-})
-
-test('accepts an existing macOS absolute path', () => {
-  const targetPath = '/Users/xiaofu/Downloads'
-
-  assert.equal(
-    assertSafeLocalPath(targetPath, { platform: 'darwin', pathExists: existingPath }),
-    targetPath,
-  )
+test('accepts macOS absolute paths with spaces, Unicode, and mounted volumes', () => {
+  for (const targetPath of ['/Users/xiaofu/Downloads', '/Users/xiaofu/中文 素材', '/Volumes/Media Drive/电影']) {
+    assert.equal(assertSafeLocalPath(targetPath, { pathExists: existingPath }), targetPath)
+  }
 })
 
 test('rejects URLs, relative paths, empty paths, and null bytes', () => {
   const cases = [
-    ['https://example.com/file', 'win32', /Only local filesystem paths/],
-    ['file:///C:/Windows', 'win32', /Only local filesystem paths/],
-    ['relative\\folder', 'win32', /Only absolute filesystem paths/],
-    ['C:relative', 'win32', /Only local filesystem paths/],
-    ['', 'win32', /Path is required/],
-    ['C:\\safe\0unsafe', 'win32', /invalid character/],
+    ['https://example.com/file', /Only local filesystem paths/],
+    ['file:///Users/xiaofu', /Only local filesystem paths/],
+    ['relative/folder', /Only absolute filesystem paths/],
+    ['', /Path is required/],
+    ['/safe\0unsafe', /invalid character/],
   ]
-
-  for (const [targetPath, platform, expected] of cases) {
-    assert.throws(
-      () => assertSafeLocalPath(targetPath, { platform, pathExists: existingPath }),
-      expected,
-    )
+  for (const [targetPath, expected] of cases) {
+    assert.throws(() => assertSafeLocalPath(targetPath, { pathExists: existingPath }), expected)
   }
 })
 
 test('rejects an absolute path that does not exist', () => {
-  assert.throws(
-    () => assertSafeLocalPath('C:\\missing', { platform: 'win32', pathExists: () => false }),
-    /Path does not exist/,
-  )
+  assert.throws(() => assertSafeLocalPath('/missing', { pathExists: () => false }), /Path does not exist/)
 })

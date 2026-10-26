@@ -336,6 +336,24 @@ test('engine shutdown waits for an active task process tree to terminate', async
   })
 })
 
+test('active Source Inspection prevents restart until its operation finishes', async () => {
+  await withTemporaryWorkspace(async (rootDirectory) => {
+    const gate = Promise.withResolvers()
+    const engine = createMediaTaskEngine({ dataDirectory: rootDirectory, resolveCollection: () => gate.promise })
+    try {
+      assert.equal(engine.hasActiveWork(), false)
+      const inspection = engine.inspectSource({ kind: 'network-url', url: 'https://www.bilibili.com/bangumi/play/ep123' })
+      assert.equal(engine.hasActiveWork(), true)
+      gate.resolve(null)
+      await inspection
+      assert.equal(engine.hasActiveWork(), false)
+    } finally {
+      gate.resolve(null)
+      await engine.shutdown()
+    }
+  })
+})
+
 test('Source Inspection identifies a real local audio file without changing workspace state', { skip: !hasFfprobe }, async () => {
   await withTemporaryWorkspace(async (rootDirectory) => {
     const dataDirectory = path.join(rootDirectory, 'data')
@@ -424,7 +442,7 @@ test('a compatible audio recipe compiles into an immutable Task Plan without cre
   })
 })
 
-test('Task Plan delivery names preserve Unicode while removing Windows-prohibited characters', async () => {
+test('Task Plan delivery names preserve macOS punctuation while removing unsafe separators', async () => {
   await withTemporaryWorkspace(async (rootDirectory) => {
     const outputDirectory = path.join(rootDirectory, 'output')
     mkdirSync(outputDirectory)
@@ -450,7 +468,7 @@ test('Task Plan delivery names preserve Unicode while removing Windows-prohibite
         language: 'zh-CN',
       })
 
-      assert.equal(plan.deliveryName, '采访_片段_ - 音频.m4a')
+      assert.equal(plan.deliveryName, '采访_片段? - 音频.m4a')
     } finally {
       engine.close()
     }
@@ -579,6 +597,8 @@ test('creating a Media Task advances the workspace revision and survives an engi
       language: 'en',
     })
     const createdSnapshot = engine.createTask(plan)
+
+    assert.equal(engine.hasActiveWork(), true, 'Queued tasks must prevent an application restart')
 
     assert.deepEqual(createdSnapshot, {
       contractVersion: 1,
@@ -1377,7 +1397,7 @@ test('network delivery names sanitize URL-title separators without dropping Unic
         language: 'zh-CN',
       })
 
-      assert.equal(plan.deliveryName, '系列 _ 第 1 集_ 开场_ - 视频.mp4')
+      assert.equal(plan.deliveryName, '系列 _ 第 1 集_ 开场? - 视频.mp4')
     } finally {
       engine.close()
     }
@@ -1899,5 +1919,130 @@ test('a queued network task refuses to run after its pinned Deno runtime changes
     } finally {
       runner.close()
     }
+  })
+})
+
+test('Bilibili preview warnings never deliver a partial file and fresh Cookies work without restarting the engine', async () => {
+  await withTemporaryWorkspace(async (rootDirectory) => {
+    const dataDirectory = path.join(rootDirectory, 'data')
+    const packageDirectory = path.join(rootDirectory, 'MediaCookies Export')
+    const serviceDirectory = path.join(packageDirectory, 'by-service')
+    const outputDirectory = path.join(rootDirectory, 'output')
+    const fakeYtDlpPath = path.join(rootDirectory, 'bilibili-preview.cjs')
+    mkdirSync(serviceDirectory, { recursive: true })
+    mkdirSync(outputDirectory)
+    const cookieFile = path.join(serviceDirectory, 'bilibili.cookies.txt')
+    const writeCookie = (value) => writeFileSync(cookieFile, `# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tTRUE\t2147483647\tSESSDATA\t${value}\n`)
+    writeCookie('old-fixture')
+    writeFileSync(fakeYtDlpPath, `
+const { readFileSync, writeFileSync } = require('node:fs')
+const args = process.argv.slice(2)
+const cookieIndex = args.indexOf('--cookies')
+const fresh = cookieIndex >= 0 && readFileSync(args[cookieIndex + 1], 'utf8').includes('fresh-fixture')
+if (args.includes('--dump-single-json')) {
+  process.stdout.write(JSON.stringify({ id: 'episode', title: 'Bilibili full episode', duration: 1200,
+    extractor_key: 'Bilibili', formats: [{height: fresh ? 1080 : 480, vcodec: 'avc1', acodec: 'aac'}] }))
+} else {
+  if (!args.includes('--abort-on-unavailable-fragments')) process.exit(9)
+  const output = args[args.indexOf('--output') + 1]
+  writeFileSync(output, fresh ? 'complete authorized video' : 'partial preview')
+  if (!fresh) process.stderr.write('WARNING: Only preview format is available, you have to become a premium member to access full video.')
+}
+`)
+    const engine = createMediaTaskEngine({
+      dataDirectory,
+      managedRuntimes: {
+        ytDlp: { command: process.execPath, argsPrefix: [fakeYtDlpPath], version: 'fixture' },
+        ffmpeg: { command: 'ffmpeg', version: 'fixture' },
+      },
+    })
+    try {
+      const oldImport = await engine.importAuthenticationPackage({ sourceDirectory: packageDirectory, displayName: 'Old Cookies' })
+      const inspection = await engine.inspectSource({ kind: 'network-url', url: 'https://www.bilibili.com/video/BVfixture' })
+      assert.equal(inspection.status, 'ready')
+      const oldPlan = await engine.planTask({ source: inspection.source, recipeId: 'network-video', outputDirectory, language: 'zh-CN' })
+      const created = engine.createTask(oldPlan)
+      await assert.rejects(engine.runTask(created.tasks[0].id), /authentication.preview-only/)
+      const failed = engine.getWorkspaceSnapshot()
+      assert.equal(failed.tasks[0].state, 'needs-attention')
+      assert.equal(failed.tasks[0].problem.code, 'authentication.preview-only')
+      assert.equal(failed.deliverables.length, 0)
+      assert.equal(existsSync(path.join(outputDirectory, oldPlan.deliveryName)), false)
+      assert.equal(existsSync(path.join(outputDirectory, '.media-dock-staging', created.tasks[0].id)), false)
+
+      writeCookie('fresh-fixture')
+      const refreshed = await engine.importAuthenticationPackage({ sourceDirectory: packageDirectory, displayName: 'Fresh Cookies' })
+      const newId = refreshed.authenticationProfiles[0].id
+      assert.notEqual(newId, oldImport.authenticationProfiles[0].id)
+      assert.throws(() => engine.createTask(oldPlan), /Authentication Profile/)
+      const quality = await engine.inspectVideoQualities(inspection.source)
+      assert.deepEqual(quality.availableHeights, [1080])
+      assert.equal(quality.authenticationProfileId, newId)
+      const newPlan = await engine.planTask({ source: inspection.source, recipeId: 'network-video', outputDirectory, language: 'zh-CN' })
+      assert.equal(newPlan.authenticationProfileId, newId)
+      const queued = engine.createTask(newPlan).tasks.find((task) => task.state === 'queued')
+      const completed = await engine.runTask(queued.id)
+      assert.equal(completed.tasks.find((task) => task.id === queued.id).state, 'completed')
+      assert.equal(readFileSync(path.join(outputDirectory, newPlan.deliveryName), 'utf8'), 'complete authorized video')
+      assert.doesNotMatch(JSON.stringify(completed), /old-fixture|fresh-fixture/)
+    } finally {
+      engine.close()
+    }
+  })
+})
+
+test('concurrent inspection, quality checks and downloads never give yt-dlp the imported Cookie original', async () => {
+  await withTemporaryWorkspace(async (rootDirectory) => {
+    const dataDirectory = path.join(rootDirectory, 'data')
+    const packageDirectory = path.join(rootDirectory, 'package')
+    const serviceDirectory = path.join(packageDirectory, 'by-service')
+    const outputDirectory = path.join(rootDirectory, 'output')
+    const invocationFile = path.join(rootDirectory, 'invocations.jsonl')
+    const runtime = path.join(rootDirectory, 'cookie-writer.cjs')
+    mkdirSync(serviceDirectory, { recursive: true })
+    mkdirSync(outputDirectory)
+    const original = '# Netscape HTTP Cookie File\n.bilibili.com\tTRUE\t/\tTRUE\t4102444800\tSESSDATA\tsynthetic-original\n'
+    writeFileSync(path.join(serviceDirectory, 'bilibili.cookies.txt'), original)
+    writeFileSync(runtime, `
+const fs = require('node:fs'); const args = process.argv.slice(2);
+const cookiePath = args[args.indexOf('--cookies') + 1];
+const metadata = args.includes('--dump-single-json');
+const url = args.find(value => value.startsWith('https://')); const id = new URL(url).searchParams.get('v');
+if (!fs.readFileSync(cookiePath, 'utf8').includes('synthetic-original')) process.exit(8);
+fs.appendFileSync(${JSON.stringify(invocationFile)}, JSON.stringify({cookiePath, metadata}) + '\\n');
+fs.writeFileSync(cookiePath, 'a stale jar saved by this child');
+if (id === 'fail') process.exit(1);
+if (metadata) process.stdout.write(JSON.stringify({id, title:'episode-' + id, webpage_url:url, duration:30, extractor_key:'Bilibili', vcodec:'avc1', formats:[{height:1080,vcodec:'avc1',acodec:'aac'}]}));
+else fs.writeFileSync(args[args.indexOf('--output') + 1], 'completed synthetic media');
+`)
+    let verificationCalls = 0
+    const engine = createMediaTaskEngine({ dataDirectory, managedRuntimes: {
+      ytDlp: { command: process.execPath, argsPrefix: [runtime], version: 'fixture' },
+      ffmpeg: { command: 'ffmpeg', version: 'fixture' },
+    }, verifyAuthentication: async (_url, cookiePath) => {
+      assert.equal(readFileSync(cookiePath, 'utf8'), original)
+      assert.equal(cookiePath.includes('authentication-profiles'), false)
+      verificationCalls += 1
+    } })
+    try {
+      const imported = await engine.importAuthenticationPackage({ sourceDirectory: packageDirectory, displayName: 'Synthetic login' })
+      const master = path.join(dataDirectory, 'authentication-profiles', imported.authenticationProfiles[0].id, 'by-service', 'bilibili.cookies.txt')
+      const inspected = await Promise.all([1, 2].map(v => engine.inspectSource({kind:'network-url',url:`https://www.bilibili.com/video/test?v=${v}`})))
+      assert.ok(inspected.every(result => result.status === 'ready'))
+      await engine.inspectVideoQualities(inspected[0].source)
+      await engine.inspectVideoQualities(inspected[0].source)
+      const plans = await Promise.all(inspected.map(result => engine.planTask({source:result.source,recipeId:'network-video',outputDirectory,language:'en'})))
+      const batch = engine.createTaskBatch(plans, 'balanced').taskBatches[0]
+      await engine.runTaskBatch(batch.id)
+      assert.equal(engine.getWorkspaceSnapshot().tasks.filter(task => task.state === 'completed').length, 2)
+      const failed = await engine.inspectSource({kind:'network-url',url:'https://www.bilibili.com/video/test?v=fail'})
+      assert.equal(failed.status, 'needs-attention')
+      const calls = readFileSync(invocationFile, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      assert.equal(calls.length, 6)
+      assert.equal(verificationCalls, 6)
+      assert.equal(new Set(calls.map(call => call.cookiePath)).size, 6)
+      for (const call of calls) assert.equal(existsSync(path.dirname(call.cookiePath)), false)
+      assert.equal(readFileSync(master, 'utf8'), original)
+    } finally { await engine.shutdown() }
   })
 })

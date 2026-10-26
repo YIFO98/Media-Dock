@@ -31,7 +31,7 @@ async function probeFixtureVersion(filePath) {
 
 function createSandbox() {
   const rootDir = mkdtempSync(join(tmpdir(), 'media-dock-runtime-'))
-  const targetPath = join(rootDir, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp')
+  const targetPath = join(rootDir, 'yt-dlp')
   return {
     rootDir,
     targetPath,
@@ -86,7 +86,6 @@ test('installs only after download, checksum, and version validation', async () 
       expectedVersion: '2026.07.04',
       expectedSha256: sha256(validPayload),
       expectedSize: validPayload.byteLength,
-      platform: process.platform,
       probeVersion: probeFixtureVersion,
       download: async (temporaryPath) => {
         writeFileSync(temporaryPath, validPayload)
@@ -116,7 +115,6 @@ for (const failure of ['incomplete', 'checksum', 'version']) {
           targetPath: sandbox.targetPath,
           expectedVersion: '2026.07.04',
           expectedSha256: failure === 'checksum' ? '0'.repeat(64) : sha256(failure === 'version' ? corruptPayload : validPayload),
-          platform: process.platform,
           probeVersion: probeFixtureVersion,
           download: async (temporaryPath) => {
             const payload = failure === 'version' ? corruptPayload : validPayload

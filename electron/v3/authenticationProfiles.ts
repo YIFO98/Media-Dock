@@ -100,7 +100,7 @@ export async function copyAuthenticationPackage(
     for (const file of files) {
       const targetPath = path.join(stagingDirectory, 'by-service', file.fileName)
       await copyFile(file.sourcePath, targetPath)
-      if (process.platform !== 'win32') await chmod(targetPath, 0o600)
+      await chmod(targetPath, 0o600)
     }
     await rename(stagingDirectory, targetDirectory)
   } catch (error) {

@@ -1,5 +1,7 @@
 # ADR 0034: Separate product version maturity from platform package trust
 
+> Platform scope updated on 2026-10-26 by [ADR 0038](0038-support-macos-only.md): macOS is the sole supported platform. Earlier Windows-specific requirements below are historical; remaining product and safety constraints continue to apply.
+
 ## Decision
 
 Media Dock reports two independent release states:

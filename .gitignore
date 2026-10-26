@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.media-dock-launcher.lock
 dist
 dist-electron
 dist-ssr
@@ -44,7 +45,6 @@ subtitle-cleanup-config.json
 .playwright-cli/
 output/playwright/
 output/qa/
-Media Dock.lnk
 
 # Editor directories and files
 .vscode/*

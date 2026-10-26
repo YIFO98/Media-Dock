@@ -7,7 +7,7 @@ import {
   resolveRuntimeDownloadUrl,
 } from '../dist-electron/core/runtimeDownloadSource.js'
 
-const officialAsset = 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp.exe'
+const officialAsset = 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp'
 
 test('official runtime downloads keep the trusted GitHub release URL', () => {
   assert.equal(
@@ -33,7 +33,7 @@ test('runtime mirrors reject insecure, credentialed, and ambiguous addresses', (
   assert.throws(() => normalizeRuntimeMirrorBaseUrl('https://user:secret@mirror.example'), /credentials/i)
   assert.throws(() => normalizeRuntimeMirrorBaseUrl('https://mirror.example/?target=github'), /query or fragment/i)
   assert.throws(
-    () => resolveRuntimeDownloadUrl('https://downloads.example/runtime.exe', { source: 'official' }),
+    () => resolveRuntimeDownloadUrl('https://downloads.example/runtime', { source: 'official' }),
     /official GitHub/i,
   )
 })

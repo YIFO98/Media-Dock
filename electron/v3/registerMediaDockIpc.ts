@@ -24,6 +24,8 @@ export const MEDIA_DOCK_V3_CHANNELS = Object.freeze({
   clearTaskHistory: 'media-dock:v3:clear-task-history',
   revealDeliverable: 'media-dock:v3:reveal-deliverable',
   checkRuntimeUpdates: 'media-dock:v3:check-runtime-updates',
+  getRuntimeStatus: 'media-dock:v3:get-runtime-status',
+  restartApplication: 'media-dock:v3:restart-application',
   updateRuntimeTools: 'media-dock:v3:update-runtime-tools',
   exportSupportDiagnostics: 'media-dock:v3:export-support-diagnostics',
   exportTaskDiagnostics: 'media-dock:v3:export-task-diagnostics',
@@ -49,6 +51,8 @@ type MediaDockV3Pickers = Readonly<{
   openMediaCookiesResource(resource: 'chrome-store' | 'github'): Promise<void>
   revealDeliverable(deliverableId: string): Promise<void>
   checkRuntimeUpdates(): Promise<unknown>
+  getRuntimeStatus(): Promise<unknown>
+  restartApplication(language: 'zh-CN' | 'en'): Promise<unknown>
   updateRuntimeTools(input: RuntimeDownloadRequest): Promise<unknown>
   exportSupportDiagnostics(input: Readonly<{ language: 'zh-CN' | 'en'; recentError?: string }>): Promise<string | null>
   exportTaskDiagnostics(input: Readonly<{ taskId: string; language: 'zh-CN' | 'en' }>): Promise<string | null>
@@ -78,6 +82,11 @@ function optionalString(value: unknown, label: string): string | undefined {
 function parseMediaCookiesResource(value: unknown): 'chrome-store' | 'github' {
   if (value === 'chrome-store' || value === 'github') return value
   throw new TypeError('MediaCookies resource is unsupported.')
+}
+
+function parseRestartLanguage(value: unknown): 'zh-CN' | 'en' {
+  if (value === 'zh-CN' || value === 'en') return value
+  throw new TypeError('Restart language must be zh-CN or en.')
 }
 
 function parseRuntimeDownloadRequest(value: unknown): RuntimeDownloadRequest {
@@ -328,6 +337,8 @@ export function registerMediaDockV3Ipc(
   ipc.handle(MEDIA_DOCK_V3_CHANNELS.clearTaskHistory, () => engine.clearTaskHistory())
   ipc.handle(MEDIA_DOCK_V3_CHANNELS.revealDeliverable, (_event, payload) => pickers.revealDeliverable(requireString(payload, 'Deliverable id')))
   ipc.handle(MEDIA_DOCK_V3_CHANNELS.checkRuntimeUpdates, () => pickers.checkRuntimeUpdates())
+  ipc.handle(MEDIA_DOCK_V3_CHANNELS.getRuntimeStatus, () => pickers.getRuntimeStatus())
+  ipc.handle(MEDIA_DOCK_V3_CHANNELS.restartApplication, (_event, language) => pickers.restartApplication(parseRestartLanguage(language)))
   ipc.handle(MEDIA_DOCK_V3_CHANNELS.updateRuntimeTools, (_event, payload) => pickers.updateRuntimeTools(parseRuntimeDownloadRequest(payload)))
   ipc.handle(MEDIA_DOCK_V3_CHANNELS.exportSupportDiagnostics, (_event, payload) => pickers.exportSupportDiagnostics(parseSupportDiagnosticsInput(payload)))
   ipc.handle(MEDIA_DOCK_V3_CHANNELS.exportTaskDiagnostics, (_event, payload) => pickers.exportTaskDiagnostics(parseTaskDiagnosticsInput(payload)))
@@ -359,6 +370,8 @@ export function registerMediaDockV3Ipc(
     ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.clearTaskHistory)
     ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.revealDeliverable)
     ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.checkRuntimeUpdates)
+    ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.getRuntimeStatus)
+    ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.restartApplication)
     ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.updateRuntimeTools)
     ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.exportSupportDiagnostics)
     ipc.removeHandler(MEDIA_DOCK_V3_CHANNELS.exportTaskDiagnostics)

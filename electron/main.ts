@@ -6,6 +6,7 @@ import { delimiter, dirname, extname, isAbsolute, join, parse, relative } from '
 import { fileURLToPath } from 'node:url'
 import { TextDecoder } from 'node:util'
 import { assertSafeLocalPath } from './core/localPath.js'
+import { createApplicationRestarter } from './core/applicationRestart.js'
 import {
   ensureWritablePortableDataDirectory,
   getPortableDataDirectory,
@@ -47,6 +48,7 @@ import {
 import { extractZipArchive } from './core/zipArchive.js'
 import { createManagedRuntimeRegistry, type ManagedRuntimeRegistry } from './v3/managedRuntimeRegistry.js'
 import { createMediaTaskEngine, type MediaTaskEngine } from './v3/mediaTaskEngine.js'
+import { createBilibiliAuthenticationVerifier } from './v3/bilibiliAuthentication.js'
 import { registerMediaDockV3Ipc } from './v3/registerMediaDockIpc.js'
 import { buildSanitizedSupportDiagnostics, buildSanitizedTaskDiagnostics } from './v3/supportDiagnostics.js'
 
@@ -381,31 +383,14 @@ type JobContext = {
   process: ChildProcessWithoutNullStreams
 }
 
-const isWindows = process.platform === 'win32'
 const APP_DISPLAY_NAME = 'Media Dock'
 const WINDOW_DISPLAY_NAME = process.env.MEDIA_DOCK_V3_PREVIEW === '1' ? 'Media Dock 3 Preview' : APP_DISPLAY_NAME
-const windowsHomeDir = process.env.USERPROFILE ?? homedir()
-const windowsLocalAppDataDir = process.env.LOCALAPPDATA ?? join(windowsHomeDir, 'AppData', 'Local')
-const windowsProgramFilesDir = process.env.ProgramFiles ?? 'C:\\Program Files'
-const envRoot = process.env.YTDLP_ENV_ROOT
-  ?? (
-    isWindows
-      ? join(windowsHomeDir, '.conda', 'envs', 'yt-dlp')
-      : join(homedir(), '.conda', 'envs', 'yt-dlp')
-  )
+const envRoot = process.env.YTDLP_ENV_ROOT ?? join(homedir(), '.conda', 'envs', 'yt-dlp')
 const denoCandidates = [
   process.env.DENO_BIN,
-  ...(isWindows
-    ? [
-        join(windowsHomeDir, '.deno', 'bin', 'deno.exe'),
-        join(windowsLocalAppDataDir, 'Microsoft', 'WinGet', 'Packages', 'DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe', 'deno.exe'),
-        join(windowsProgramFilesDir, 'Deno', 'bin', 'deno.exe'),
-      ]
-    : [
-        join(homedir(), '.deno', 'bin', 'deno'),
-        '/opt/homebrew/bin/deno',
-        '/usr/local/bin/deno',
-      ]),
+  join(homedir(), '.deno', 'bin', 'deno'),
+  '/opt/homebrew/bin/deno',
+  '/usr/local/bin/deno',
 ].filter((value): value is string => Boolean(value))
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -425,6 +410,8 @@ let startupSplashProgress: StartupProgressSnapshot = normalizeStartupProgress(
 )
 let v3TaskEngine: MediaTaskEngine | null = null
 let v3RuntimeRegistry: ManagedRuntimeRegistry | null = null
+let v3RuntimeRestartRequired = false
+let v3MaintenanceInFlight = 0
 let unregisterV3Ipc: (() => void) | null = null
 let portableDataRootDirectory: string | null = null
 let activeBatchRequest: DownloadRequest | null = null
@@ -450,6 +437,43 @@ const runtimeOperations = new RuntimeOperationCoordinator()
 let applicationShutdownStarted = false
 let applicationShutdownCompleted = false
 let applicationShutdownPromise: Promise<void> | null = null
+
+async function withV3MaintenanceOperation<T>(work: () => Promise<T>): Promise<T> {
+  if (applicationShutdownStarted) throw new Error('Media Dock is shutting down.')
+  v3MaintenanceInFlight += 1
+  try {
+    return await work()
+  } finally {
+    v3MaintenanceInFlight -= 1
+  }
+}
+
+const restartApplication = createApplicationRestarter({
+  getBlockReason() {
+    if (applicationShutdownStarted || !v3TaskEngine || v3MaintenanceInFlight > 0 || runtimeOperations.hasActiveOperation()) return 'operation-active'
+    if (v3TaskEngine.hasActiveWork() || activeJobs.size > 0 || pendingJobs.length > 0 || activeMediaProcess || activeSubtitleCleanupAbort) return 'tasks-active'
+    return null
+  },
+  async confirm(language) {
+    if (!mainWindow || mainWindow.isDestroyed()) return false
+    const chinese = language === 'zh-CN'
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      title: chinese ? '重启 Media Dock' : 'Restart Media Dock',
+      message: chinese ? '现在重启 Media Dock？' : 'Restart Media Dock now?',
+      detail: chinese
+        ? '已保存的任务记录和登录资料会保留。当前尚未提交的链接、选择和编辑不会保留。'
+        : 'Saved task history and sign-in data will be kept. Unsubmitted links, selections and edits will not be kept.',
+      buttons: chinese ? ['取消', '重启应用'] : ['Cancel', 'Restart app'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    return result.response === 1
+  },
+  relaunch: () => app.relaunch(),
+  quit: () => app.quit(),
+})
 
 const DEFAULT_SUBTITLE_CLEANUP_PROMPT = [
   '请帮我优化以下这份视频字幕文档。这份文档是通过 OCR 自动生成的，包含大量冗余和识别错误，同时含有时间戳和序号，需要请按以下规则进行清理和修复文字，最终形成一整份纯文本。',
@@ -498,7 +522,7 @@ function getPortableRootDir() {
     return explicitPortableRoot
   }
 
-  if (app.isPackaged && process.platform === 'darwin') {
+  if (app.isPackaged) {
     const appBundleDir = dirname(dirname(dirname(process.execPath)))
     return dirname(appBundleDir)
   }
@@ -527,10 +551,6 @@ function initializePortableUserDataPath() {
 
 function uniquePaths(paths: Array<string | undefined>) {
   return [...new Set(paths.filter((value): value is string => Boolean(value)))]
-}
-
-function getExecutableName(name: string) {
-  return isWindows ? `${name}.exe` : name
 }
 
 function getManagedToolBinDirs() {
@@ -570,13 +590,14 @@ function getFallbackToolDirs() {
 
   return uniquePaths([
     process.env.YTDLP_TOOLS_DIR,
-    join(envRoot, isWindows ? 'Scripts' : 'bin'),
-    ...(isWindows ? [] : ['/opt/homebrew/bin', '/usr/local/bin']),
+    join(envRoot, 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
   ])
 }
 
 function findExecutableInDirectory(directory: string, name: string) {
-  const candidatePath = join(directory, getExecutableName(name))
+  const candidatePath = join(directory, name)
   return existsSync(candidatePath) ? candidatePath : null
 }
 
@@ -675,10 +696,8 @@ function buildDyldLibraryPathEnv() {
 }
 
 function createStreamDecoder() {
-  const encoding = isWindows ? 'gb18030' : 'utf-8'
-
   try {
-    const decoder = new TextDecoder(encoding, { fatal: false })
+    const decoder = new TextDecoder('utf-8', { fatal: false })
     return {
       write(chunk: Uint8Array) {
         return decoder.decode(chunk, { stream: true })
@@ -875,6 +894,7 @@ function getUpdateDownloadDir() {
 
 let portableStartupError: Error | null = null
 try {
+  if (process.platform !== 'darwin') throw new Error('Media Dock supports macOS only.')
   initializePortableUserDataPath()
 } catch (error) {
   portableStartupError = error instanceof Error ? error : new Error(String(error))
@@ -893,10 +913,6 @@ function getWindowIconPath() {
 }
 
 function applyDockIcon() {
-  if (process.platform !== 'darwin') {
-    return
-  }
-
   const iconPath = getWindowIconPath()
   if (iconPath) {
     app.dock?.setIcon(iconPath)
@@ -1519,20 +1535,10 @@ function selectUpdateAsset(assets: NonNullable<GitHubReleasePayload['assets']>) 
     }))
     .filter((asset) => asset.name && asset.url)
 
-  if (isWindows) {
-    return normalizedAssets.find((asset) => /x64.*win.*\.zip$/i.test(asset.name))
-      ?? normalizedAssets.find((asset) => /win.*\.zip$/i.test(asset.name))
-      ?? null
-  }
-
-  if (process.platform === 'darwin') {
-    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
-    return normalizedAssets.find((asset) => new RegExp(`${arch}.*mac.*\\.zip$`, 'i').test(asset.name))
-      ?? normalizedAssets.find((asset) => /mac.*\.zip$/i.test(asset.name))
-      ?? null
-  }
-
-  return normalizedAssets.find((asset) => /\.zip$/i.test(asset.name)) ?? null
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  return normalizedAssets.find((asset) => new RegExp(`${arch}.*mac.*\\.zip$`, 'i').test(asset.name))
+    ?? normalizedAssets.find((asset) => /universal.*mac.*\.zip$/i.test(asset.name))
+    ?? null
 }
 
 async function checkForUpdates(): Promise<UpdateCheckResult> {
@@ -1593,7 +1599,7 @@ async function downloadLatestUpdate(): Promise<UpdateDownloadResult> {
 }
 
 function selectYtDlpDownloadAsset(assets: NonNullable<GitHubReleasePayload['assets']>) {
-  const preferredName = isWindows ? 'yt-dlp.exe' : 'yt-dlp'
+  const preferredName = 'yt-dlp'
   const normalizedAssets = assets
     .map((asset) => ({
       name: asset.name ?? '',
@@ -1762,7 +1768,7 @@ async function checkV3ManagedRuntimeUpdates(): Promise<ManagedRuntimeUpdateResul
   if (!v3RuntimeRegistry) throw new Error('The managed runtime registry is not ready.')
   return Object.freeze({
     ...managedRuntimeUpdateSnapshot(v3RuntimeRegistry, await getLatestManagedRuntimeReleases()),
-    restartRequired: false,
+    restartRequired: v3RuntimeRestartRequired,
     defaultMirrorBaseUrl: DEFAULT_RUNTIME_MIRROR_BASE_URL,
   })
 }
@@ -1780,7 +1786,7 @@ async function installV3ManagedYtDlp(
   await registry.installAndActivate({
     tool: 'yt-dlp',
     version,
-    executableName: getExecutableName('yt-dlp'),
+    executableName: 'yt-dlp',
     expectedSize: asset.size,
     expectedSha256: asset.digest,
     populateCandidate: async (candidatePath) => {
@@ -1816,7 +1822,7 @@ async function installV3ManagedDeno(
 ): Promise<void> {
   const asset = selectDenoDownloadAsset(release.assets ?? [])
   if (!asset) throw new Error('No matching Deno release asset was found for this platform.')
-  const executableName = getExecutableName('deno')
+  const executableName = 'deno'
   const downloadUrl = resolveRuntimeDownloadUrl(asset.url, downloadRequest)
 
   await registry.installAndActivate({
@@ -1877,7 +1883,6 @@ async function updateV3ManagedRuntimeTools(
   const registry = v3RuntimeRegistry
   const releases = await getLatestManagedRuntimeReleases()
   const available = managedRuntimeUpdateSnapshot(registry, releases)
-  let restartRequired = false
 
   if (available.ytDlp.updateAvailable && available.ytDlp.latestVersion) {
     await installV3ManagedYtDlp(
@@ -1886,7 +1891,7 @@ async function updateV3ManagedRuntimeTools(
       available.ytDlp.latestVersion,
       downloadRequest,
     )
-    restartRequired = true
+    v3RuntimeRestartRequired = true
   }
   if (available.deno.updateAvailable && available.deno.latestVersion) {
     await installV3ManagedDeno(
@@ -1895,11 +1900,11 @@ async function updateV3ManagedRuntimeTools(
       available.deno.latestVersion,
       downloadRequest,
     )
-    restartRequired = true
+    v3RuntimeRestartRequired = true
   }
   return Object.freeze({
     ...managedRuntimeUpdateSnapshot(registry, releases),
-    restartRequired,
+    restartRequired: v3RuntimeRestartRequired,
     defaultMirrorBaseUrl: DEFAULT_RUNTIME_MIRROR_BASE_URL,
   })
 }
@@ -1917,13 +1922,12 @@ async function installYtDlpRuntime(): Promise<RuntimeToolInstallResult> {
     throw new Error('No matching yt-dlp release asset was found for this platform.')
   }
 
-  const targetPath = join(ensureDirectory(getRuntimeToolsInstallBinDir()), getExecutableName('yt-dlp'))
+  const targetPath = join(ensureDirectory(getRuntimeToolsInstallBinDir()), 'yt-dlp')
   const installed = await installValidatedRuntimeExecutable({
     targetPath,
     expectedVersion: latestVersion,
     expectedSha256: asset.digest,
     expectedSize: asset.size,
-    platform: process.platform,
     download: async (temporaryPath) => await downloadUrlToFile(asset.url, temporaryPath, 'yt-dlp asset download', ({ percent }) => {
       emitRuntimeToolProgress({
         tool: 'yt-dlp',
@@ -1955,19 +1959,7 @@ async function installYtDlpRuntime(): Promise<RuntimeToolInstallResult> {
 }
 
 function getDenoArchiveName() {
-  if (isWindows) {
-    return 'deno-x86_64-pc-windows-msvc.zip'
-  }
-
-  if (process.platform === 'darwin') {
-    return process.arch === 'arm64' ? 'deno-aarch64-apple-darwin.zip' : 'deno-x86_64-apple-darwin.zip'
-  }
-
-  if (process.platform === 'linux') {
-    return process.arch === 'arm64' ? 'deno-aarch64-unknown-linux-gnu.zip' : 'deno-x86_64-unknown-linux-gnu.zip'
-  }
-
-  throw new Error(`Deno auto-install is not supported on ${process.platform}.`)
+  return process.arch === 'arm64' ? 'deno-aarch64-apple-darwin.zip' : 'deno-x86_64-apple-darwin.zip'
 }
 
 function selectDenoDownloadAsset(assets: NonNullable<GitHubReleasePayload['assets']>) {
@@ -2029,7 +2021,7 @@ async function installDenoRuntime(): Promise<RuntimeToolInstallResult> {
   const archiveName = getDenoArchiveName()
   const archivePath = join(downloadDir, archiveName)
   const extractDir = join(downloadDir, `deno-${latestVersion}`)
-  const executableName = getExecutableName('deno')
+  const executableName = 'deno'
   const targetPath = join(binDir, executableName)
 
   try {
@@ -2052,7 +2044,6 @@ async function installDenoRuntime(): Promise<RuntimeToolInstallResult> {
     const installed = await installValidatedRuntimeExecutable({
       targetPath,
       expectedVersion: latestVersion,
-      platform: process.platform,
       download: async (temporaryPath) => {
         copyFileSync(extractedDeno, temporaryPath)
         const size = statSync(temporaryPath).size
@@ -2600,15 +2591,15 @@ function resolveDialogStartDirectory(inputPath?: string) {
 }
 
 function getYtDlpPath() {
-  return resolveExecutablePath('yt-dlp') ?? getExecutableName('yt-dlp')
+  return resolveExecutablePath('yt-dlp') ?? 'yt-dlp'
 }
 
 function getFfmpegPath() {
-  return resolveExecutablePath('ffmpeg') ?? getExecutableName('ffmpeg')
+  return resolveExecutablePath('ffmpeg') ?? 'ffmpeg'
 }
 
 function getFfprobePath() {
-  return resolveExecutablePath('ffprobe') ?? getExecutableName('ffprobe')
+  return resolveExecutablePath('ffprobe') ?? 'ffprobe'
 }
 
 async function getSelfCheckItems(): Promise<SelfCheckItem[]> {
@@ -2632,13 +2623,13 @@ async function getSelfCheckItems(): Promise<SelfCheckItem[]> {
     {
       key: 'ffmpeg',
       label: 'media-core',
-      ok: ffmpegPath !== getExecutableName('ffmpeg') || Boolean(findExecutableInPath('ffmpeg')),
+      ok: ffmpegPath !== 'ffmpeg' || Boolean(findExecutableInPath('ffmpeg')),
       detail: ffmpegPath,
     },
     {
       key: 'ffprobe',
       label: 'media-probe',
-      ok: ffprobePath !== getExecutableName('ffprobe') || Boolean(findExecutableInPath('ffprobe')),
+      ok: ffprobePath !== 'ffprobe' || Boolean(findExecutableInPath('ffprobe')),
       detail: ffprobePath,
     },
     {
@@ -3193,7 +3184,7 @@ async function inspectMedia(inputPath: string): Promise<MediaInspection> {
       '-of',
       'json',
       inputPath,
-    ], { detached: process.platform !== 'win32' })
+    ], { detached: true })
     activeMediaProcess = child
 
     let stdout = ''
@@ -3721,7 +3712,7 @@ async function runLoggedProcess(executable: string, args: string[], cwd: string)
   return await new Promise<void>((resolve, reject) => {
     const child = spawn(executable, args, {
       cwd,
-      detached: process.platform !== 'win32',
+      detached: true,
       env: {
         ...process.env,
         PATH: buildToolPathEnv(),
@@ -4041,7 +4032,7 @@ function startNextJobs() {
       const ytDlpPath = getYtDlpPath()
       const child = spawn(ytDlpPath, args, {
         cwd: activeBatchRequest.outputDir,
-        detached: process.platform !== 'win32',
+        detached: true,
         env: {
           ...process.env,
           PATH: buildToolPathEnv(),
@@ -4410,6 +4401,7 @@ async function initializeV3TaskEngine() {
   v3TaskEngine = createMediaTaskEngine({
     dataDirectory: v3DataDirectory,
     resolveCollection: resolveMediaCollection,
+    verifyAuthentication: createBilibiliAuthenticationVerifier(electronRuntimeFetch),
     managedRuntimes: {
       ffmpeg: activeFfmpeg,
       ffprobe: activeFfprobe,
@@ -4457,28 +4449,30 @@ async function initializeV3TaskEngine() {
         return result.canceled ? null : result.filePaths[0] ?? null
       },
       async importAuthenticationProfile() {
-        const result = await dialog.showOpenDialog(mainWindow!, {
-          defaultPath: resolveDefaultDownloads(),
-          properties: ['openFile'],
-          filters: [
-            { name: 'MediaCookies package', extensions: ['zip'] },
-            { name: 'All files', extensions: ['*'] },
-          ],
-        })
-        const zipPath = result.filePaths[0]
-        if (result.canceled || !zipPath) return null
-        const extractDirectory = join(v3DataDirectory, 'authentication-imports', `extract-${Date.now()}`)
-        try {
-          await extractZip(zipPath, extractDirectory)
-          const packageRoot = findCookieExportRoot(extractDirectory)
-          if (!packageRoot) throw new Error('The selected ZIP is not a supported MediaCookies package.')
-          return await v3TaskEngine!.importAuthenticationPackage({
-            sourceDirectory: packageRoot,
-            displayName: parse(zipPath).name,
+        return await withV3MaintenanceOperation(async () => {
+          const result = await dialog.showOpenDialog(mainWindow!, {
+            defaultPath: resolveDefaultDownloads(),
+            properties: ['openFile'],
+            filters: [
+              { name: 'MediaCookies package', extensions: ['zip'] },
+              { name: 'All files', extensions: ['*'] },
+            ],
           })
-        } finally {
-          rmSync(extractDirectory, { recursive: true, force: true })
-        }
+          const zipPath = result.filePaths[0]
+          if (result.canceled || !zipPath) return null
+          const extractDirectory = join(v3DataDirectory, 'authentication-imports', `extract-${Date.now()}`)
+          try {
+            await extractZip(zipPath, extractDirectory)
+            const packageRoot = findCookieExportRoot(extractDirectory)
+            if (!packageRoot) throw new Error('The selected ZIP is not a supported MediaCookies package.')
+            return await v3TaskEngine!.importAuthenticationPackage({
+              sourceDirectory: packageRoot,
+              displayName: parse(zipPath).name,
+            })
+          } finally {
+            rmSync(extractDirectory, { recursive: true, force: true })
+          }
+        })
       },
       async openAuthenticationProfilesDirectory() {
         const authenticationDirectory = ensureDirectory(join(v3DataDirectory, 'authentication-profiles'))
@@ -4494,10 +4488,21 @@ async function initializeV3TaskEngine() {
         shell.showItemInFolder(deliverable.path)
       },
       async checkRuntimeUpdates() {
-        return await checkV3ManagedRuntimeUpdates()
+        return await withV3MaintenanceOperation(checkV3ManagedRuntimeUpdates)
+      },
+      async getRuntimeStatus() {
+        if (!v3RuntimeRegistry) throw new Error('The managed runtime registry is not ready.')
+        return {
+          ytDlpVersion: v3RuntimeRegistry.getActive('yt-dlp')?.version ?? null,
+          denoVersion: v3RuntimeRegistry.getActive('deno')?.version ?? null,
+          restartRequired: v3RuntimeRestartRequired,
+        }
+      },
+      async restartApplication(language) {
+        return await restartApplication(language)
       },
       async updateRuntimeTools(downloadRequest) {
-        return await updateV3ManagedRuntimeTools(downloadRequest)
+        return await withV3MaintenanceOperation(() => updateV3ManagedRuntimeTools(downloadRequest))
       },
       async exportSupportDiagnostics(input) {
         const generatedAt = new Date()
@@ -4668,12 +4673,6 @@ app.on('before-quit', (event) => {
       applicationShutdownCompleted = true
       app.exit(0)
     })
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
 })
 
 ipcMain.handle('paths:get', async () => ({

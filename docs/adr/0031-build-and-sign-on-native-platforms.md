@@ -1,5 +1,7 @@
 # ADR 0031: Build and sign portable ZIPs on native platforms
 
+> Platform scope updated on 2026-10-26 by [ADR 0038](0038-support-macos-only.md): macOS is the sole supported platform. Earlier Windows-specific requirements below are historical; remaining product and safety constraints continue to apply.
+
 ## Decision
 
 Media Dock 3 uses electron-builder to create native Windows and macOS ZIP artifacts. Windows packages are built on Windows, macOS packages are built on macOS, and no release script manually copies, renames, or repacks the Electron runtime after identity editing or signing. Unsigned builds carry an explicit developer-preview label; formal releases require platform signing and native trust verification.

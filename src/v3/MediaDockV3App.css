@@ -401,6 +401,7 @@
 .md3-runtime-maintenance > div > small { overflow: visible; text-overflow: initial; white-space: normal; }
 .md3-runtime-actions { display: grid !important; gap: 7px !important; }
 .md3-runtime-actions .md3-system-action { width: 100%; }
+.md3-system-list .md3-setting-feedback { overflow: visible; color: var(--md3-cyan-strong); line-height: 1.6; white-space: normal; }
 .md3-runtime-actions .md3-system-action.is-primary { border-color: color-mix(in srgb, var(--md3-cyan-strong) 46%, var(--md3-line)); background: color-mix(in srgb, var(--md3-cyan) 10%, var(--md3-surface)); }
 .md3-runtime-mirror-field { display: grid; gap: 5px; margin-top: 3px; }
 .md3-runtime-mirror-field > span { color: var(--md3-ink-soft); font-size: 9px; font-weight: 750; }

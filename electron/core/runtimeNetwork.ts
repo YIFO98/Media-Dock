@@ -64,25 +64,45 @@ function createRuntimeRequestError(label: string, url: string, error: unknown) {
   return new Error(`${label} failed for ${host}: ${getErrorDetail(error)}`, { cause: error })
 }
 
+function createRequestTimeout(timeoutMs: number) {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout>
+  const reset = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      controller.abort(new Error('网络请求超时，请检查连接后重试。Network request timed out.'))
+    }, timeoutMs)
+  }
+  reset()
+  return {
+    signal: controller.signal,
+    reset,
+    dispose: () => clearTimeout(timer),
+  }
+}
+
 export async function fetchRuntimeJson<T>(options: {
   fetchImpl: RuntimeFetch
   url: string
   label: string
   headers?: RequestInit['headers']
+  timeoutMs?: number
 }): Promise<T> {
-  let response: Response
+  const timeout = createRequestTimeout(options.timeoutMs ?? 30_000)
   try {
-    response = await options.fetchImpl(options.url, options.headers ? { headers: options.headers } : undefined)
-  } catch (error) {
-    throw createRuntimeRequestError(options.label, options.url, error)
-  }
-  if (!response.ok) {
-    throw createRuntimeRequestError(options.label, options.url, new Error(`HTTP ${response.status}`))
-  }
-  try {
+    const response = await options.fetchImpl(options.url, {
+      ...(options.headers ? { headers: options.headers } : {}),
+      signal: timeout.signal,
+    })
+    if (!response.ok) {
+      await response.body?.cancel()
+      throw new Error(`HTTP ${response.status}`)
+    }
     return await response.json() as T
   } catch (error) {
-    throw createRuntimeRequestError(options.label, options.url, error)
+    throw createRuntimeRequestError(options.label, options.url, timeout.signal.aborted ? timeout.signal.reason : error)
+  } finally {
+    timeout.dispose()
   }
 }
 
@@ -92,22 +112,18 @@ export async function downloadRuntimeFile(options: {
   targetPath: string
   label: string
   onProgress?: (progress: RuntimeDownloadProgress) => void
+  idleTimeoutMs?: number
 }) {
   const temporaryPath = createSiblingTemporaryPath(options.targetPath)
-  let response: Response
+  const timeout = createRequestTimeout(options.idleTimeoutMs ?? 60_000)
   try {
-    response = await options.fetchImpl(options.url)
-  } catch (error) {
-    throw createRuntimeRequestError(options.label, options.url, error)
-  }
-  if (!response.ok) {
-    throw createRuntimeRequestError(options.label, options.url, new Error(`HTTP ${response.status}`))
-  }
-  if (!response.body) {
-    throw createRuntimeRequestError(options.label, options.url, new Error('Response did not include a body'))
-  }
-
-  try {
+    const response = await options.fetchImpl(options.url, { signal: timeout.signal })
+    if (!response.ok) {
+      await response.body?.cancel()
+      throw new Error(`HTTP ${response.status}`)
+    }
+    if (!response.body) throw new Error('Response did not include a body')
+    timeout.reset()
     mkdirSync(dirname(options.targetPath), { recursive: true })
     const totalBytesHeader = Number(response.headers.get('content-length') ?? 0)
     const totalBytes = Number.isFinite(totalBytesHeader) && totalBytesHeader > 0 ? totalBytesHeader : null
@@ -116,6 +132,7 @@ export async function downloadRuntimeFile(options: {
 
     options.onProgress?.({ receivedBytes, totalBytes, percent: totalBytes ? 0 : null })
     source.on('data', (chunk: Buffer) => {
+      timeout.reset()
       receivedBytes += chunk.byteLength
       options.onProgress?.({
         receivedBytes,
@@ -124,7 +141,7 @@ export async function downloadRuntimeFile(options: {
       })
     })
 
-    await pipeline(source, createWriteStream(temporaryPath))
+    await pipeline(source, createWriteStream(temporaryPath), { signal: timeout.signal })
     if (totalBytes !== null && receivedBytes !== totalBytes) {
       throw new Error(`Incomplete download: received ${receivedBytes} of ${totalBytes} bytes`)
     }
@@ -132,8 +149,9 @@ export async function downloadRuntimeFile(options: {
     options.onProgress?.({ receivedBytes, totalBytes, percent: 100 })
     return { receivedBytes, totalBytes }
   } catch (error) {
-    throw createRuntimeRequestError(options.label, options.url, error)
+    throw createRuntimeRequestError(options.label, options.url, timeout.signal.aborted ? timeout.signal.reason : error)
   } finally {
+    timeout.dispose()
     try {
       rmSync(temporaryPath, { force: true })
     } catch {

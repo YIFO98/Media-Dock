@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -12,7 +13,7 @@ function createSandbox() {
   const rootDir = mkdtempSync(join(tmpdir(), 'media-dock-runtime-network-'))
   return {
     rootDir,
-    targetPath: join(rootDir, '中文 下载', 'yt-dlp.exe.part'),
+    targetPath: join(rootDir, '中文 下载', 'yt-dlp.part'),
     cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
   }
 }
@@ -49,12 +50,89 @@ test('runtime metadata requests forward explicit GitHub API headers', async () =
   })
 
   assert.deepEqual(result, { tag_name: '2026.07.04' })
-  assert.deepEqual(capturedInit, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'Media-Dock/3.0.2',
-    },
+  assert.deepEqual(capturedInit.headers, {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'Media-Dock/3.0.2',
   })
+  assert.ok(capturedInit.signal instanceof AbortSignal)
+})
+
+async function serveRuntime(t, handler) {
+  const server = createServer(handler)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => {
+    server.closeAllConnections()
+    return new Promise((resolve) => server.close(resolve))
+  })
+  return `http://127.0.0.1:${server.address().port}/runtime`
+}
+
+for (const phase of ['headers', 'body']) {
+  test(`runtime metadata times out when ${phase} stop arriving`, { timeout: 3000 }, async (t) => {
+    const url = await serveRuntime(t, (_request, response) => {
+      if (phase === 'body') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.write('{"tag_name":')
+      }
+    })
+    await assert.rejects(fetchRuntimeJson({
+      fetchImpl: fetch,
+      url,
+      label: 'runtime metadata request',
+      timeoutMs: 100,
+    }), /runtime metadata request.*127\.0\.0\.1.*timed out/)
+  })
+}
+
+test('a stalled runtime download times out, removes staging, and preserves the old file', { timeout: 3000 }, async (t) => {
+  const sandbox = createSandbox()
+  t.after(sandbox.cleanup)
+  const directory = join(sandbox.rootDir, '中文 下载')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(sandbox.targetPath, 'previous runtime')
+  const progress = []
+  const url = await serveRuntime(t, (_request, response) => {
+    response.writeHead(200, { 'content-length': '100' })
+    response.write('partial')
+  })
+  await assert.rejects(downloadRuntimeFile({
+    fetchImpl: fetch,
+    url,
+    targetPath: sandbox.targetPath,
+    label: 'runtime download',
+    idleTimeoutMs: 100,
+    onProgress: (event) => progress.push(event),
+  }), /runtime download.*timed out/)
+  assert.equal(readFileSync(sandbox.targetPath, 'utf8'), 'previous runtime')
+  assert.deepEqual(readdirSync(directory), ['yt-dlp.part'])
+  assert.ok(progress.some((event) => event.receivedBytes > 0))
+  assert.ok(progress.every((event) => event.percent !== 100))
+})
+
+test('download timeout resets while data arrives instead of limiting total transfer duration', { timeout: 3000 }, async (t) => {
+  const sandbox = createSandbox()
+  t.after(sandbox.cleanup)
+  const url = await serveRuntime(t, (_request, response) => {
+    response.writeHead(200, { 'content-length': '10' })
+    let sent = 0
+    const timer = setInterval(() => {
+      response.write('x')
+      sent += 1
+      if (sent === 10) {
+        clearInterval(timer)
+        response.end()
+      }
+    }, 50)
+    response.on('close', () => clearInterval(timer))
+  })
+  await downloadRuntimeFile({
+    fetchImpl: fetch,
+    url,
+    targetPath: sandbox.targetPath,
+    label: 'runtime download',
+    idleTimeoutMs: 250,
+  })
+  assert.equal(readFileSync(sandbox.targetPath, 'utf8'), 'xxxxxxxxxx')
 })
 
 test('failed runtime downloads remove partial files and identify the asset host', async () => {
@@ -73,7 +151,7 @@ test('failed runtime downloads remove partial files and identify the asset host'
           status: 200,
           headers: { 'content-length': '10' },
         }),
-        url: 'https://github.com/yt-dlp/yt-dlp/releases/download/test/yt-dlp.exe',
+        url: 'https://github.com/yt-dlp/yt-dlp/releases/download/test/yt-dlp',
         targetPath: sandbox.targetPath,
         label: 'yt-dlp asset download',
       }),

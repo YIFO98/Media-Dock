@@ -67,7 +67,6 @@ export type CreateManagedRuntimeRegistryOptions = Readonly<{
   baselines?: Partial<Record<RuntimeTool, RuntimeReference>>
   now?: () => Date
   idFactory?: () => string
-  platform?: NodeJS.Platform
 }>
 
 type ManifestEntry = Readonly<{
@@ -263,13 +262,12 @@ export function createManagedRuntimeRegistry(options: CreateManagedRuntimeRegist
           throw new Error(`Runtime SHA-256 validation failed: expected ${expectedSha256}, received ${actualSha256}.`)
         }
       }
-      if ((options.platform ?? process.platform) !== 'win32') chmodSync(candidatePath, 0o755)
+      chmodSync(candidatePath, 0o755)
       const probedVersion = (await input.probeVersion(candidatePath))?.trim() || null
       if (!probedVersion) throw new Error('Managed runtime candidate could not report its version.')
       if (normalizeVersion(probedVersion) !== normalizeVersion(input.version)) {
         throw new Error(`Runtime version validation failed: expected ${input.version}, received ${probedVersion}.`)
       }
-      // Windows FlushFileBuffers (used by fsync) requires a writable handle.
       // The candidate was just written and is still private to staging, so
       // reopening it as r+ preserves the durability check on every platform.
       const candidateDescriptor = openSync(candidatePath, 'r+')

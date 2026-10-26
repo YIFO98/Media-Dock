@@ -134,6 +134,17 @@ export type RuntimeUpdateSnapshot = Readonly<{
   defaultMirrorBaseUrl: string
 }>
 
+export type RuntimeStatusSnapshot = Readonly<{
+  ytDlpVersion: string | null
+  denoVersion: string | null
+  restartRequired: boolean
+}>
+
+export type ApplicationRestartResult = Readonly<
+  | { status: 'restarting' | 'cancelled' }
+  | { status: 'blocked'; reason: 'tasks-active' | 'operation-active' }
+>
+
 export type RuntimeDownloadRequest = Readonly<
   { source: 'official' }
   | { source: 'mirror'; mirrorBaseUrl: string }
@@ -231,6 +242,8 @@ export type MediaDockV3Api = Readonly<{
   clearTaskHistory(): Promise<WorkspaceSnapshot>
   revealDeliverable(deliverableId: string): Promise<void>
   checkRuntimeUpdates(): Promise<RuntimeUpdateSnapshot>
+  getRuntimeStatus(): Promise<RuntimeStatusSnapshot>
+  restartApplication(language: Language): Promise<ApplicationRestartResult>
   updateRuntimeTools(input: RuntimeDownloadRequest): Promise<RuntimeUpdateSnapshot>
   exportSupportDiagnostics(input: Readonly<{ language: Language; recentError?: string }>): Promise<string | null>
   exportTaskDiagnostics(input: Readonly<{ taskId: string; language: Language }>): Promise<string | null>

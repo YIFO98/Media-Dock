@@ -32,8 +32,7 @@ async function resolveElectronCommand() {
 }
 
 async function resolveLocalBin(command) {
-  const executable = process.platform === 'win32' ? `${command}.cmd` : command
-  const localBin = join(process.cwd(), 'node_modules', '.bin', executable)
+  const localBin = join(process.cwd(), 'node_modules', '.bin', command)
   await access(localBin, constants.F_OK)
   return localBin
 }

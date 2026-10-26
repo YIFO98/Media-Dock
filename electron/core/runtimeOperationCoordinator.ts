@@ -4,6 +4,10 @@ export class RuntimeOperationCoordinator {
   private runtimeInstallTarget: RuntimeToolInstallTarget | null = null
   private downloadStartPending = false
 
+  hasActiveOperation() {
+    return this.runtimeInstallTarget !== null || this.downloadStartPending
+  }
+
   claimRuntimeInstall(tool: RuntimeToolInstallTarget, hasActiveDownloads: boolean) {
     if (hasActiveDownloads || this.downloadStartPending) {
       throw new Error('Stop active downloads before updating runtime tools.')

@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { statSync } from 'node:fs'
 import { dirname, isAbsolute } from 'node:path'
 
@@ -19,24 +19,18 @@ export function resolveRuntimeProcessWorkingDirectory(command: string, fallbackD
   return dirname(process.execPath)
 }
 
-export function terminateRuntimeProcessTree(child: ChildProcess) {
+export function terminateRuntimeProcessTree(child: ChildProcess, force = false) {
   const pid = child.pid
-  if (!pid || child.exitCode !== null || child.signalCode !== null) return
+  const parentExited = child.exitCode !== null || child.signalCode !== null
+  if (!pid || (parentExited && !force)) return
 
-  if (process.platform === 'win32') {
-    spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
-      windowsHide: true,
-      stdio: 'ignore',
-      timeout: 10_000,
-    })
-    return
-  }
 
   try {
-    process.kill(-pid, 'SIGTERM')
+    process.kill(-pid, force ? 'SIGKILL' : 'SIGTERM')
   } catch {
+    if (parentExited) return
     try {
-      child.kill('SIGTERM')
+      child.kill(force ? 'SIGKILL' : 'SIGTERM')
     } catch {
       // The process may already have exited between the state check and signal.
     }
@@ -64,8 +58,7 @@ export async function runRuntimeProcessCollectOutput(options: {
     const child = spawn(options.command, options.args, {
       cwd: workingDirectory,
       env: options.env,
-      detached: process.platform !== 'win32',
-      windowsHide: true,
+      detached: true,
     })
 
     let stdout = ''
@@ -99,24 +92,34 @@ export async function runRuntimeProcessCollectOutput(options: {
       else stderrLineBuffer = ''
     }
     let settled = false
+    let stopError: Error | null = null
+    let forceStopTimer: ReturnType<typeof setTimeout> | undefined
     const settle = (action: () => void) => {
       if (settled) return
       settled = true
       clearTimeout(timeout)
+      clearTimeout(forceStopTimer)
       options.signal?.removeEventListener('abort', abortProcess)
       action()
     }
-    const abortProcess = () => {
+    const stopProcess = (error: Error) => {
+      if (settled || stopError) return
+      stopError = error
       terminateRuntimeProcessTree(child)
+      // Wait for close before callers remove private Cookie snapshots. A child
+      // handling SIGTERM may still save its jar while it shuts down.
+      forceStopTimer = setTimeout(() => terminateRuntimeProcessTree(child, true), 1_000)
+    }
+    const abortProcess = () => {
       const error = new Error('Runtime process was cancelled because Media Dock is shutting down.')
       error.name = 'AbortError'
-      settle(() => reject(error))
+      stopProcess(error)
     }
     const timeout = setTimeout(() => {
-      terminateRuntimeProcessTree(child)
-      settle(() => reject(new Error(`${options.command} timed out after ${Math.round(options.timeoutMs / 1000)} seconds.`)))
+      stopProcess(new Error(`${options.command} timed out after ${Math.round(options.timeoutMs / 1000)} seconds.`))
     }, options.timeoutMs)
     options.signal?.addEventListener('abort', abortProcess, { once: true })
+    if (options.signal?.aborted) abortProcess()
 
     child.stdout.on('data', (chunk) => {
       const text = chunk.toString('utf8')
@@ -134,6 +137,10 @@ export async function runRuntimeProcessCollectOutput(options: {
     child.on('close', (code) => {
       emitRemainder('stdout')
       emitRemainder('stderr')
+      if (stopError) {
+        settle(() => reject(stopError))
+        return
+      }
       if (code === 0) {
         settle(() => resolve({ stdout, stderr }))
         return

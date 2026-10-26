@@ -38,9 +38,7 @@ test('application ZIP extraction handles spaces and Chinese paths without extern
   }
 })
 
-test('application ZIP extraction preserves internal macOS bundle symlinks', {
-  skip: process.platform === 'win32' ? 'creating symlinks requires a native Unix host' : false,
-}, async () => {
+test('application ZIP extraction preserves internal macOS bundle symlinks', async () => {
   const sandbox = mkdtempSync(path.join(tmpdir(), 'media-dock-zip-symlink-'))
   const zipPath = path.join(sandbox, 'safe.zip')
   const outputDirectory = path.join(sandbox, 'safe output')
@@ -55,9 +53,7 @@ test('application ZIP extraction preserves internal macOS bundle symlinks', {
   }
 })
 
-test('application ZIP extraction rejects a symlink that escapes the destination', {
-  skip: process.platform === 'win32' ? 'creating symlinks requires a native Unix host' : false,
-}, async () => {
+test('application ZIP extraction rejects a symlink that escapes the destination', async () => {
   const sandbox = mkdtempSync(path.join(tmpdir(), 'media-dock-zip-escape-'))
   const zipPath = path.join(sandbox, 'escape.zip')
   const outputDirectory = path.join(sandbox, 'escape output')
@@ -71,9 +67,4 @@ test('application ZIP extraction rejects a symlink that escapes the destination'
   } finally {
     rmSync(sandbox, { recursive: true, force: true })
   }
-})
-
-test('the application no longer invokes PowerShell or Bandizip for ZIP extraction', () => {
-  const mainSource = readFileSync(new URL('../electron/main.ts', import.meta.url), 'utf8')
-  assert.doesNotMatch(mainSource, /ExecutionPolicy|Expand-Archive|Bandizip|powershell\.exe/iu)
 })

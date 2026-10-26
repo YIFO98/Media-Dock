@@ -1,7 +1,7 @@
 {
   "name": "media-dock",
   "private": true,
-  "version": "3.0.3",
+  "version": "3.0.4-preview.4",
   "type": "module",
   "main": "dist-electron/main.js",
   "description": "A compact local media download and processing desktop app.",
@@ -22,16 +22,14 @@
     "test": "npm run build && node --test --test-concurrency=1",
     "test:local-path": "npm run build:electron && node --test tests/local-path.test.mjs",
     "test:runtime-executable": "npm run build:electron && node --test tests/runtime-executable.test.mjs",
-    "test:windows-package": "node --test tests/windows-runtime-package.test.mjs",
     "test:renderer-actions": "npm run build:web && node --test tests/renderer-actions.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "electron .",
     "launch:mac": "zsh scripts/launch-mac.sh",
     "launch:mac:v3": "zsh scripts/launch-mac-v3-preview.sh",
-    "dist": "npm run build && electron-builder --config electron-builder.config.cjs",
-    "dist:mac": "zsh scripts/build-mac-share.sh",
-    "dist:win": "node scripts/build-windows-native.mjs"
+    "dist": "npm run dist:mac",
+    "dist:mac": "zsh scripts/build-mac-share.sh"
   },
   "dependencies": {
     "extract-zip": "^2.0.1",
@@ -45,7 +43,6 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
     "concurrently": "^9.2.1",
-    "cross-env": "^10.1.0",
     "electron": "^41.0.2",
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.4",
@@ -59,5 +56,12 @@
   },
   "overrides": {
     "tmp": "^0.2.6"
-  }
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ]
 }

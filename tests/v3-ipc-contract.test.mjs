@@ -107,6 +107,7 @@ test('the IPC boundary exports support diagnostics from validated renderer conte
   let receivedTaskInput = null
   let authenticationDirectoryOpened = false
   const runtimeUpdateCalls = []
+  const restartCalls = []
   const pickers = {
     getDefaultOutputDirectory: async () => '/desktop',
     pickLocalSource: async () => null,
@@ -117,6 +118,8 @@ test('the IPC boundary exports support diagnostics from validated renderer conte
     openMediaCookiesResource: async () => {},
     revealDeliverable: async () => {},
     checkRuntimeUpdates: async () => { runtimeUpdateCalls.push('check'); return { updateAvailable: true } },
+    getRuntimeStatus: async () => ({ ytDlpVersion: '2026.10.21', denoVersion: '2.9.8', restartRequired: true }),
+    restartApplication: async (language) => { restartCalls.push(language); return { status: 'cancelled' } },
     updateRuntimeTools: async (input) => { runtimeUpdateCalls.push(input); return { updateAvailable: false } },
     exportSupportDiagnostics: async (input) => { receivedInput = input; return 'support-log.txt' },
     exportTaskDiagnostics: async (input) => { receivedTaskInput = input; return 'task-log.txt' },
@@ -127,6 +130,13 @@ test('the IPC boundary exports support diagnostics from validated renderer conte
   const openAuthenticationDirectoryHandler = handlers.get(MEDIA_DOCK_V3_CHANNELS.openAuthenticationProfilesDirectory)
   const checkRuntimeUpdatesHandler = handlers.get(MEDIA_DOCK_V3_CHANNELS.checkRuntimeUpdates)
   const updateRuntimeToolsHandler = handlers.get(MEDIA_DOCK_V3_CHANNELS.updateRuntimeTools)
+  const runtimeStatusHandler = handlers.get(MEDIA_DOCK_V3_CHANNELS.getRuntimeStatus)
+  const restartHandler = handlers.get(MEDIA_DOCK_V3_CHANNELS.restartApplication)
+  assert.deepEqual(await runtimeStatusHandler({}), { ytDlpVersion: '2026.10.21', denoVersion: '2.9.8', restartRequired: true })
+  assert.deepEqual(runtimeUpdateCalls, [], 'Refreshing installed versions must not check the network')
+  assert.deepEqual(await restartHandler({}, 'zh-CN'), { status: 'cancelled' })
+  await assert.rejects(async () => restartHandler({}, { args: ['--unsafe'] }), /language/i)
+  assert.deepEqual(restartCalls, ['zh-CN'])
 
   assert.equal(typeof exportHandler, 'function')
   assert.equal(typeof exportTaskHandler, 'function')

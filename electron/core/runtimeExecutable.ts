@@ -32,7 +32,6 @@ type InstallValidatedRuntimeExecutableOptions = {
   expectedVersion: string
   expectedSha256?: string | null
   expectedSize?: number | null
-  platform?: NodeJS.Platform
   download: (temporaryPath: string) => Promise<DownloadResult | void>
   probeVersion: (executablePath: string) => Promise<string | null>
   onStage?: (stage: RuntimeInstallStage) => void
@@ -141,9 +140,7 @@ export async function installValidatedRuntimeExecutable(
       }
     }
 
-    if ((options.platform ?? process.platform) !== 'win32') {
-      chmodSync(temporaryPath, 0o755)
-    }
+    chmodSync(temporaryPath, 0o755)
     const version = (await options.probeVersion(temporaryPath))?.trim() || null
     if (!version) {
       throw new Error('Downloaded runtime could not report its version.')

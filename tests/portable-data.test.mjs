@@ -39,9 +39,7 @@ test('portable data reports a clear error when the data path is a file', () => {
   }
 })
 
-test('portable data reports a clear error for a genuinely write-denied directory', {
-  skip: process.platform === 'win32' ? 'native Windows ACL denial is covered by the package gate' : false,
-}, () => {
+test('portable data reports a clear error for a genuinely write-denied directory', () => {
   const sandbox = mkdtempSync(path.join(tmpdir(), 'media-dock-permission-denied-'))
   const blockedRoot = path.join(sandbox, '只读 目录')
   const dataDirectory = path.join(blockedRoot, 'Media Dock Data')

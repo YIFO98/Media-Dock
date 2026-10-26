@@ -36,7 +36,8 @@ app.whenReady().then(async () => {
       authenticationProfiles: [],
       systemOperations: [],
     }))
-    ipcMain.handle('media-dock:v3:get-default-output-directory', () => 'I:\\桌面')
+    ipcMain.handle('media-dock:v3:get-default-output-directory', () => '/Volumes/Test/桌面')
+    ipcMain.handle('media-dock:v3:get-runtime-status', () => ({ ytDlpVersion: '2026.07.04', denoVersion: null, restartRequired: false }))
   }
   const win = new BrowserWindow({
     show: Boolean(screenshotPath),
@@ -57,12 +58,12 @@ app.whenReady().then(async () => {
   try {
     await win.loadFile(
       path.resolve(__dirname, '../../dist/index.html'),
-      action === 'v3Workbench' || action === 'v3DefaultDesktop' || action === 'v3EnglishWorkbench' || action === 'v3WorkspaceNavigation' || action === 'v3TaskScrolling' || action === 'v3LocalFlow' || action === 'v3MergeFlow' || action === 'v3MediaCookiesGuide' || action === 'v3NetworkFlow' || action === 'v3SlowInspection' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection' || action === 'v3CollectionFlow' || action === 'v3CollectionGrouping' || action === 'v3TaskVisibility' || action === 'v3TlsNetworkProblem' || action === 'v3YoutubeBlockedProblem' || action === 'v3ExpiredCookieProblem' || action === 'v3TaskDiagnostics' || action === 'v3ClearHistory' || action === 'v3DeliverableReveal' || action === 'v3RuntimeCheck' || action === 'v3SupportDiagnostics' || action === 'v3EnglishCollection' || action === 'v3CollectionProblem' || action === 'v3NetworkInspectionProblem' || action === 'v3LanguagePersistence' || action === 'v3AuthProfile' || action === 'v3EnglishAuthProfile' || action === 'v3ProductionPreload' ? { hash: 'v3' } : undefined,
+      action?.startsWith('v3') ? { hash: 'v3' } : undefined,
     )
     if (action === 'v3ProductionPreload') {
       const rendered = await waitFor(
         win,
-        `document.body.innerText.includes('处理工作台') && !document.body.innerText.includes('Renderer error') && ['getDefaultOutputDirectory', 'pickLocalSources', 'inspectVideoQualities', 'revealDeliverable', 'checkRuntimeUpdates', 'updateRuntimeTools', 'exportSupportDiagnostics', 'exportTaskDiagnostics'].every((key) => typeof window.mediaDock?.[key] === 'function')`,
+        `document.body.innerText.includes('处理工作台') && !document.body.innerText.includes('Renderer error') && !document.querySelector('.md3-error') && ['getDefaultOutputDirectory', 'pickLocalSources', 'inspectVideoQualities', 'revealDeliverable', 'checkRuntimeUpdates', 'getRuntimeStatus', 'restartApplication', 'updateRuntimeTools', 'exportSupportDiagnostics', 'exportTaskDiagnostics'].every((key) => typeof window.mediaDock?.[key] === 'function')`,
       )
       if (!rendered) throw new Error('Production preload did not expose the Media Dock 3 contract')
       console.log('[GREEN] the production preload exposes the Media Dock 3 sandbox contract.')
@@ -131,7 +132,7 @@ app.whenReady().then(async () => {
       await win.webContents.executeJavaScript(`document.querySelector('.md3-primary-action').click()`, true)
       const desktopReady = await waitFor(
         win,
-        `document.querySelector('.md3-destination-picker')?.innerText.includes('I:\\\\桌面')`,
+        `document.querySelector('.md3-destination-picker')?.innerText.includes('/Volumes/Test/桌面')`,
       )
       if (!desktopReady) throw new Error('Desktop did not become the default video save location')
       console.log('[GREEN] Media Dock 3 defaults video delivery to Desktop while keeping the directory picker available.')
@@ -460,7 +461,7 @@ app.whenReady().then(async () => {
       `, true)
       const outputReady = await waitFor(
         win,
-        `document.querySelector('.md3-destination-picker')?.innerText.includes('I:\\\\桌面')
+        `document.querySelector('.md3-destination-picker')?.innerText.includes('/Volumes/Test/桌面')
           && document.querySelector('.md3-primary-action')?.textContent.trim().startsWith('开始处理')`,
       )
       if (!outputReady) throw new Error('Desktop default did not produce a ready plan after quality selection')
@@ -468,7 +469,7 @@ app.whenReady().then(async () => {
       const planned = await waitFor(win, `document.body.innerText.includes('山海 Episode 42 - 视频.mp4')`)
       if (!planned) throw new Error('Selected 1080p ceiling was not accepted by task planning')
       await win.webContents.executeJavaScript(`document.querySelector('.md3-primary-action').click()`, true)
-      const preflightReady = await waitFor(win, `document.body.innerText.includes('Cookie 检测通过') && document.body.innerText.includes('最高 1080p')`)
+      const preflightReady = await waitFor(win, `document.body.innerText.includes('已检查可用画质') && document.body.innerText.includes('最高 1080p')`)
       if (!preflightReady) throw new Error('Selected 1080p ceiling was not confirmed by the pre-download check')
       if (screenshotPath) {
         await new Promise((resolve) => setTimeout(resolve, 250))
@@ -605,6 +606,99 @@ app.whenReady().then(async () => {
       app.exit(0)
       return
     }
+    if (['v3CookieRefresh', 'v3PreviewRecovery', 'v3QualityAuthenticationRecovery', 'v3PickerFailures'].includes(action)) {
+      async function clickReady(selector) {
+        if (!await waitFor(win, `Boolean(document.querySelector(${JSON.stringify(selector)})) && !document.querySelector(${JSON.stringify(selector)}).disabled`)) throw new Error(`Action unavailable: ${selector}`)
+        await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`, true)
+      }
+      await waitFor(win, `Boolean(document.querySelector('.md3-source-field input'))`)
+      await win.webContents.executeJavaScript(`(() => {
+        window.fixtureMount = 'same-renderer';
+        const input = document.querySelector('.md3-source-field input');
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'https://www.bilibili.com/video/BVfixture');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      })()`, true)
+      await clickReady('.md3-primary-action')
+      if (action === 'v3PickerFailures') {
+        async function exerciseOutputPicker() {
+          await clickReady('.md3-destination-picker')
+          if (!await waitFor(win, `document.querySelector('.md3-error code')?.textContent.includes('Output picker temporarily unavailable')`)) throw new Error('Output picker error was not explained')
+          await clickReady('.md3-destination-picker')
+          if (!await waitFor(win, `!document.querySelector('.md3-error') && document.querySelector('.md3-destination-picker').textContent.includes('恢复后的成品')`)) throw new Error('Output picker did not recover')
+        }
+        await exerciseOutputPicker()
+        await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-rail nav button')).find((button) => button.textContent.trim() === '音画合并').click()`, true)
+        await clickReady('.md3-merge-primary')
+        if (!await waitFor(win, `document.querySelector('.md3-error code')?.textContent.includes('Local picker temporarily unavailable')`)) throw new Error('Local picker error was not explained')
+        await clickReady('.md3-merge-primary')
+        if (!await waitFor(win, `!document.querySelector('.md3-error')`)) throw new Error('Cancelling the recovered local picker left a stale error')
+        await exerciseOutputPicker()
+        console.log('[GREEN] Source and destination picker failures recover without restarting.')
+      } else {
+        if (action === 'v3CookieRefresh') {
+          if (!await waitFor(win, `document.querySelector('.md3-primary-action')?.textContent.includes('开始处理') && !document.querySelector('.md3-primary-action').disabled`)) throw new Error('Initial plan was not ready')
+          await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-rail nav button')).find((button) => button.textContent.trim() === '设置').click()`, true)
+        } else {
+          if (!await waitFor(win, `document.querySelector('.md3-problem')?.textContent.includes('当前只能获取试看内容') && document.querySelector('.md3-primary-action').disabled`)) throw new Error('Preview-only access was not explained and blocked')
+          if (screenshotPath) {
+            await win.webContents.executeJavaScript(`document.querySelector('.md3-problem').scrollIntoView({ block: 'center' })`, true)
+            await new Promise((resolve) => setTimeout(resolve, 250))
+            fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
+            fs.writeFileSync(screenshotPath, (await win.webContents.capturePage()).toPNG())
+          }
+          await clickReady('.md3-problem button')
+        }
+        await clickReady('.md3-authentication-actions button')
+        if (!await waitFor(win, `document.querySelector('.md3-authentication-success')?.textContent.includes('无需重启应用')`)) throw new Error('Cookie import did not confirm immediate activation')
+        await clickReady('.md3-authentication-success button')
+        if (!await waitFor(win, `document.querySelector('.md3-primary-action')?.textContent.includes('开始处理') && !document.querySelector('.md3-primary-action').disabled && !document.querySelector('.md3-problem')`)) throw new Error('Refreshed Cookies did not restore a usable plan')
+        await clickReady('.md3-primary-action')
+        if (!await waitFor(win, `document.querySelector('.md3-primary-action')?.textContent.includes('查看任务') && window.fixtureMount === 'same-renderer' && !document.querySelector('.md3-error')`)) throw new Error('Fresh Cookies did not complete the task without a reload')
+        console.log('[GREEN] Fresh Cookies refresh authentication and the prepared plan without restarting.')
+      }
+      app.exit(0)
+      return
+    }
+    if (['v3SettingsRefresh', 'v3RestartActions', 'v3RestartBusy', 'v3RuntimePartialFailure'].includes(action)) {
+      await win.webContents.executeJavaScript(`window.fixtureMount = 'settings-refresh'; Array.from(document.querySelectorAll('.md3-rail nav button')).find((button) => button.textContent.trim() === '设置').click()`, true)
+      if (!await waitFor(win, `document.querySelector('.md3-runtime-results')?.textContent.includes('2026.07.04')`)) throw new Error('Installed versions were not loaded without an online check')
+      const click = async (selector) => {
+        if (!await waitFor(win, `document.querySelector(${JSON.stringify(selector)}) && !document.querySelector(${JSON.stringify(selector)}).disabled`)) throw new Error(`Action did not become available: ${selector}`)
+        await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`, true)
+      }
+      if (action === 'v3SettingsRefresh') {
+        for (const [selector, error] of [['.md3-runtime-refresh', 'Runtime status'], ['.md3-authentication-refresh', 'Sign-in status']]) {
+          await click(selector)
+          if (!await waitFor(win, `document.querySelector(${JSON.stringify(selector)}).disabled`)) throw new Error('Refresh did not show a busy state')
+          if (!await waitFor(win, `document.querySelector('.md3-error')?.textContent.includes(${JSON.stringify(error)}) && !document.querySelector(${JSON.stringify(selector)}).disabled`)) throw new Error('Failed refresh could not be retried')
+          await click(selector)
+          if (!await waitFor(win, `!document.querySelector(${JSON.stringify(selector)}).disabled && !document.querySelector('.md3-error')`)) throw new Error('Refresh retry failed')
+        }
+        if (!await waitFor(win, `document.body.innerText.includes('yt-dlp 2026.08.01') && document.body.innerText.includes('重启 Media Dock 后生效') && document.body.innerText.includes('Fresh local sign-in data') && document.body.innerText.includes('12 条 Cookie') && window.fixtureMount === 'settings-refresh'`)) throw new Error('Refresh lost the restart notice or failed to update sign-in data without reloading')
+      } else if (action === 'v3RestartActions') {
+        await click('.md3-restart')
+        if (!await waitFor(win, `!document.querySelector('.md3-restart').disabled`)) throw new Error('Cancelling restart left the app blocked')
+        await click('.md3-restart')
+        if (!await waitFor(win, `document.querySelector('.md3-error')?.textContent.includes('Restart temporarily unavailable') && !document.querySelector('.md3-restart').disabled`)) throw new Error('Restart failure could not be retried')
+        await click('.md3-restart')
+        if (!await waitFor(win, `document.querySelector('.md3-error')?.textContent.includes('请等待当前任务') && !document.querySelector('.md3-restart').disabled`)) throw new Error('Backend restart guard was not explained')
+        await click('.md3-restart')
+        if (!await waitFor(win, `document.querySelector('.md3-restart').disabled && document.querySelector('.md3-restart').textContent.includes('正在重启') && !document.querySelector('.md3-error')`)) throw new Error('Accepted restart permits duplicate clicks')
+      } else if (action === 'v3RestartBusy') {
+        if (!await waitFor(win, `document.querySelector('.md3-restart').disabled && document.querySelector('.md3-runtime-actions').textContent.includes('请等待当前任务')`)) throw new Error('An active Media Task did not block restart')
+      } else {
+        await click('.md3-runtime-actions button')
+        await click('.md3-runtime-actions button.is-primary')
+        if (!await waitFor(win, `document.querySelector('.md3-error')?.textContent.includes('Deno download failed') && document.querySelector('.md3-runtime-results').textContent.includes('yt-dlp 2026.08.01') && document.querySelector('.md3-runtime-results').textContent.includes('Deno 2.9.2') && document.body.innerText.includes('重启 Media Dock 后生效') && !document.querySelector('.md3-restart').disabled`)) throw new Error('Partial installation hid the new version or restart action')
+      }
+      if (screenshotPath) {
+        fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
+        fs.writeFileSync(screenshotPath, (await win.webContents.capturePage()).toPNG())
+      }
+      console.log('[GREEN] Settings refresh and restart retain state, explain failures, and protect active work.')
+      app.exit(0)
+      return
+    }
     if (action === 'v3RuntimeCheck') {
       await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-rail nav button')).find((button) => button.textContent.trim() === '设置').click()`, true)
       const checkReady = await waitFor(win, `Array.from(document.querySelectorAll('.md3-system-list button')).some((button) => button.textContent.trim() === '检查更新') && !document.body.innerText.includes('Media Dock 产品更新')`)
@@ -612,10 +706,18 @@ app.whenReady().then(async () => {
       await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-system-list button')).find((button) => button.textContent.trim() === '检查更新').click()`, true)
       const choicesReady = await waitFor(win, `document.body.innerText.includes('yt-dlp 2026.07.04 → 2026.08.01') && document.body.innerText.includes('Deno 2.9.2 → 2.9.5') && document.body.innerText.includes('发现可用更新') && Array.from(document.querySelectorAll('.md3-runtime-actions button')).some((button) => button.textContent.trim() === '官方更新') && Array.from(document.querySelectorAll('.md3-runtime-actions button')).some((button) => button.textContent.trim() === '镜像更新') && document.querySelector('.md3-runtime-mirror-field input')?.value === 'https://gh-proxy.com/'`)
       if (!choicesReady) throw new Error('Managed runtime source choices did not appear after checking')
+      await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-runtime-actions button')).find((button) => button.textContent.trim() === '重新检查').click()`, true)
+      if (!await waitFor(win, `document.querySelector('.md3-runtime-actions').textContent.includes('正在检查') && Array.from(document.querySelectorAll('.md3-runtime-actions button')).every((button) => button.disabled)`)) throw new Error('Update actions remained enabled during a fresh check')
+      if (!await waitFor(win, `!document.querySelector('.md3-runtime-actions').textContent.includes('正在检查')`)) throw new Error('Runtime recheck did not finish')
       await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('.md3-runtime-mirror-field input'); const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; setter.call(input, 'https://mirror.example/ghproxy/'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`, true)
       await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-runtime-actions button')).find((button) => button.textContent.trim() === '镜像更新').click()`, true)
       const updated = await waitFor(win, `document.body.innerText.includes('yt-dlp 2026.08.01') && document.body.innerText.includes('Deno 2.9.5') && document.body.innerText.includes('重启 Media Dock 后生效') && !document.body.innerText.includes('2026.07.04 → 2026.08.01')`)
       if (!updated) throw new Error('Managed runtime updates were not downloaded, verified, and staged')
+      await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.md3-runtime-actions button')).find((button) => button.textContent.trim() === '重新检查').click()`, true)
+      if (!await waitFor(win, `document.querySelector('.md3-runtime-actions').textContent.includes('正在检查') && document.body.innerText.includes('重启 Media Dock 后生效')`)) throw new Error('Rechecking cleared the pending restart notice')
+      if (!await waitFor(win, `!document.querySelector('.md3-runtime-actions').textContent.includes('正在检查') && document.body.innerText.includes('重启 Media Dock 后生效')`)) throw new Error('A successful recheck lost the pending restart notice')
+      await win.webContents.executeJavaScript(`document.querySelector('.md3-runtime-refresh').click()`, true)
+      if (!await waitFor(win, `document.body.innerText.includes('已刷新本机版本状态') && document.body.innerText.includes('重启 Media Dock 后生效') && !document.querySelector('.md3-restart').disabled`)) throw new Error('Local refresh cleared the pending restart or hid the restart action')
       if (screenshotPath) {
         await win.webContents.executeJavaScript(`document.querySelector('.md3-runtime-results')?.scrollIntoView({ block: 'center' })`, true)
         await new Promise((resolve) => setTimeout(resolve, 250))
@@ -706,7 +808,7 @@ app.whenReady().then(async () => {
       if (!concurrencySelected) throw new Error('Collection concurrency choice did not switch to three tasks')
       await win.webContents.executeJavaScript(`document.querySelector('.md3-destination-picker').click()`, true)
       await clickPrimary('开始处理 2 项')
-      const preflightVisible = await waitFor(win, `document.body.innerText.includes('Cookie 检测通过') && document.body.innerText.includes('首批 2 集') && document.body.innerText.includes('2160p')`)
+      const preflightVisible = await waitFor(win, `document.body.innerText.includes('已检查可用画质') && document.body.innerText.includes('首批 2 集') && document.body.innerText.includes('2160p')`)
       if (!preflightVisible) throw new Error('Fresh Cookie and quality preflight result was not shown')
       const resetForNextDownload = await waitFor(win, `document.querySelectorAll('.md3-collection-entry input:checked').length === 0 && document.querySelectorAll('.md3-collection-entry.is-downloaded').length === 2 && document.body.innerText.includes('已下载')`)
       if (!resetForNextDownload) throw new Error('Completed collection entries did not reset for a later download')
@@ -812,7 +914,7 @@ app.whenReady().then(async () => {
       app.exit(0)
       return
     }
-    if (action === 'v3NetworkInspectionProblem') {
+    if (action === 'v3NetworkInspectionProblem' || action === 'v3LoginCheckUnavailable') {
       const inputReady = await waitFor(win, `Boolean(document.querySelector('.md3-source-field input'))`)
       if (!inputReady) throw new Error('Source Dock input did not render')
       await win.webContents.executeJavaScript(`
@@ -824,12 +926,14 @@ app.whenReady().then(async () => {
           document.querySelector('.md3-primary-action').click()
         })()
       `, true)
+      const expectedTitle = action === 'v3LoginCheckUnavailable' ? '暂时无法确认登录状态' : '无法连接到视频网站'
+      const expectedAction = action === 'v3LoginCheckUnavailable' ? '重新检测' : '稍后重试'
       const explained = await waitFor(
         win,
         `Boolean(document.querySelector('.md3-problem'))
-          && document.querySelector('.md3-problem')?.innerText.includes('无法连接到视频网站')
-          && document.querySelector('.md3-problem')?.innerText.includes('网络或代理')
-          && document.querySelector('.md3-problem')?.innerText.includes('稍后重试')`,
+          && document.querySelector('.md3-problem')?.innerText.includes(${JSON.stringify(expectedTitle)})
+          && document.querySelector('.md3-problem button')?.textContent.includes(${JSON.stringify(expectedAction)})
+          && !document.querySelector('.md3-problem button')?.textContent.includes('更新 Cookies')`,
       )
       if (!explained) throw new Error('Network Source Inspection failure did not show actionable guidance')
       await win.webContents.executeJavaScript(`document.querySelector('.md3-problem button').click()`, true)

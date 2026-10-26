@@ -2,6 +2,10 @@
 
 Media Dock 是一个把网络内容与本地媒体转化为可用成品的本地媒体处理工作台。产品围绕媒体任务的完整生命周期组织，而不是围绕单个下载器或工具组织。
 
+## Platform
+
+当前产品仅支持 macOS（Apple Silicon arm64 与 Intel x64），从 `3.0.4-preview.4` 起不再维护 Windows 运行、构建、签名或 CI 分支。旧版发布记录保留为历史证据；此前 ADR 中的多平台要求以 [ADR 0038](docs/adr/0038-support-macos-only.md) 为准，其他数据与签名安全边界保持有效。
+
 ## Language
 
 **来源（Source）**：

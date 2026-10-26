@@ -1,58 +1,24 @@
 # Media Dock release guide
 
-Media Dock 3 is the current stable product line. Product-version maturity and platform-package trust are reported separately: a stable source release may carry explicitly labeled unsigned preview assets until the platform signing requirements below pass.
+Media Dock 3 is maintained for macOS only (Apple Silicon and Intel). Product-version maturity and platform-package trust are reported separately: a stable source release may carry explicitly labeled unsigned preview assets until the platform signing requirements below pass.
 
 ## Package shape
 
-- Windows: `Media-Dock-<version>-<arch>-win.zip`; run the single root entry `Media Dock.exe`. A BAT launcher is intentionally not included.
-- macOS: `Media-Dock-<version>-<arch>-mac.zip`; open `Media Dock.app` from the extracted ZIP.
+- macOS: `Media-Dock-<version>-<arch>-mac.zip`; open the root `Launch Media Dock.command`. The unchanged app bundle stays at `core/Media Dock.app`.
 - Portable state lives in the sibling `Media Dock Data/` directory. A real write probe runs before the UI starts.
 - `yt-dlp`, Deno, FFmpeg, FFprobe, and required shared libraries are bundled under application resources.
 - No package is manually reconstructed after executable editing, signing, or notarization.
 
-Unsigned artifacts include `Unsigned-Developer-Preview` in the filename. They are internal test assets, not public releases. Windows Smart App Control may block them before launch, and macOS Gatekeeper may reject them.
-
-A BAT file is not a Windows trust workaround. App Control does not directly evaluate commands interpreted by `cmd.exe`, but child EXE and DLL files are still evaluated when the BAT starts them. Replacing `Media Dock.exe` with a BAT that launches the same unsigned Electron runtime therefore preserves the block instead of fixing it. Public Windows packages still require Authenticode or Microsoft Trusted Signing and Smart App Control acceptance evidence.
-
-The user-facing explanation and supported recovery choices are maintained in [Windows security and privacy](release/windows-security-and-privacy.md). Every unsigned Windows package also embeds the concise version in `README-windows.txt` beside the executable.
+Unsigned artifacts include `Unsigned-Developer-Preview` in the filename. They are internal test assets, not public releases. macOS Gatekeeper may reject unsigned or unnotarized apps.
 
 ## Native build commands
 
 ```bash
 # Native macOS only
 npm run dist:mac
-
-# Native Windows only
-npm run dist:win
 ```
 
-`npm run dist:win` refuses to run outside Windows. `npm run dist:mac` refuses to run outside macOS. Use the matching workflow in `.github/workflows/` for repeatable CI builds.
-
-## Windows gate
-
-The native Windows workflow:
-
-1. Downloads and fingerprints the bundled runtimes. A signed candidate reads an immutable FFmpeg ZIP URL from `MEDIA_DOCK_FFMPEG_WINDOWS_URL`.
-2. Builds the ZIP with `electron-builder` and `signAndEditExecutable: true`.
-3. Checks `ProductName`, `FileDescription`, `CompanyName`, product/file version, icon-owned executable name, and absence of the old `electron.exe` identity.
-4. Records `Get-AuthenticodeSignature` results for every packaged EXE and DLL in `WINDOWS-SIGNATURES.json`.
-5. Runs all four version probes.
-6. Starts the final application with a Chinese-and-space portable path, verifies the write probe, and verifies a blocked data path fails.
-7. Writes `SHA256SUMS.txt` only after all checks pass.
-
-Manual native verification uses PowerShell normally; no execution-policy bypass is required:
-
-```powershell
-./scripts/verify-windows-package.ps1 `
-  -PackagePath "release/<version>/Media-Dock-<version>-Unsigned-Developer-Preview-x64-win.zip" `
-  -RuntimeManifestPath "release/<version>/WINDOWS-RUNTIMES.json" `
-  -SignatureReportPath "release/<version>/WINDOWS-SIGNATURES.json" `
-  -ExpectedVersion "<version>" `
-  -ChecksumPath "release/<version>/SHA256SUMS.txt" `
-  -WriteChecksum
-```
-
-GitHub-hosted Windows verification does not prove acceptance by `VerifiedAndReputableDesktop`. A formal public release still requires a signed candidate tested on a real Windows 11 machine or VM with Smart App Control enabled.
+`npm run dist` and `npm run dist:mac` use the native macOS build script. Use `.github/workflows/macos-package-gate.yml` for repeatable CI builds.
 
 ## macOS gate
 

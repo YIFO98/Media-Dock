@@ -1,5 +1,7 @@
 # Windows 安全提示与隐私说明
 
+> 历史资料：本页描述旧版本。从 `3.0.4-preview.4` 起，当前产品仅支持 macOS，本文不再作为现行构建、发布或使用指南。参见 [ADR 0038](../adr/0038-support-macos-only.md)。
+
 ## 当前为什么可能出现拦截
 
 Media Dock 3.0.0 的 Windows 便携包目前没有 Authenticode 或 Microsoft Trusted Signing 签名。缺少签名并不表示 Microsoft Defender 已检测到病毒；它表示 Windows 无法通过数字证书确认发布者身份，也无法把新文件的信誉稳定关联到后续版本。

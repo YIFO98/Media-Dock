@@ -1,6 +1,8 @@
 const { contextBridge } = require('electron')
 
 const action = process.env.MEDIA_DOCK_RENDERER_ACTION
+const authenticationRefreshAction = ['v3CookieRefresh', 'v3PreviewRecovery', 'v3QualityAuthenticationRecovery'].includes(action)
+let cookiesRefreshed = false
 const noopSubscription = () => () => {}
 const reject = (message) => async () => {
   throw new Error(message)
@@ -11,23 +13,23 @@ const openedExternalUrls = []
 
 const appApi = {
   getPaths: async () => ({
-    ytDlpPath: 'yt-dlp.exe',
+    ytDlpPath: 'yt-dlp',
     ytDlpVersion: 'test',
-    ffmpegPath: 'ffmpeg.exe',
-    ffprobePath: 'ffprobe.exe',
-    denoPath: 'deno.exe',
+    ffmpegPath: 'ffmpeg',
+    ffprobePath: 'ffprobe',
+    denoPath: 'deno',
     denoVersion: action === 'unrunnableDeno' ? null : 'test',
-    defaultDownloadDir: 'I:\\Downloads',
+    defaultDownloadDir: '/Volumes/Test/Downloads',
     envName: 'diagnostic',
-    cookiesDir: 'I:\\Media Dock Data\\cookies',
+    cookiesDir: '/Volumes/Test/Media Dock Data/cookies',
   }),
   listCookieFiles: async () => [],
   importCookieZip: async () => null,
   getSelfCheck: async () => ({
     items: action === 'ytDlpRepair' || action === 'runtimeInstallMutex' || action === 'runtimeRepairFailure'
-      ? [{ key: 'yt-dlp', label: 'download-core', ok: false, health: 'invalid', detail: 'I:\\tools\\yt-dlp.exe (version probe failed)' }]
+      ? [{ key: 'yt-dlp', label: 'download-core', ok: false, health: 'invalid', detail: '/Volumes/Test/tools/yt-dlp (version probe failed)' }]
       : action === 'unrunnableDeno'
-        ? [{ key: 'deno', label: 'Deno', ok: false, health: 'invalid', detail: 'I:\\tools\\deno.exe (version probe failed)' }]
+        ? [{ key: 'deno', label: 'Deno', ok: false, health: 'invalid', detail: '/Volumes/Test/tools/deno (version probe failed)' }]
       : [],
     toolsSource: 'bundled',
   }),
@@ -40,14 +42,14 @@ const appApi = {
     denoInstallCalls += 1
     runtimeToolListener?.({ tool: 'deno', stage: 'downloading', message: '正在下载 Deno 2.9.2...', percent: 10 })
     await new Promise((resolve) => setTimeout(resolve, 100))
-    return { tool: 'deno', path: 'I:\\tools\\deno.exe', version: '2.9.2' }
+    return { tool: 'deno', path: '/Volumes/Test/tools/deno', version: '2.9.2' }
   },
   checkRuntimeToolUpdates: async () => action === 'ytDlpRepair' || action === 'runtimeInstallMutex' || action === 'runtimeRepairFailure'
     ? {
-        ytDlp: { tool: 'yt-dlp', currentVersion: null, latestVersion: '2026.07.04', updateAvailable: true, repairRequired: true, releaseUrl: null, detail: 'I:\\tools\\yt-dlp.exe' },
+        ytDlp: { tool: 'yt-dlp', currentVersion: null, latestVersion: '2026.07.04', updateAvailable: true, repairRequired: true, releaseUrl: null, detail: '/Volumes/Test/tools/yt-dlp' },
         deno: action === 'runtimeInstallMutex'
-          ? { tool: 'deno', currentVersion: '2.3.3', latestVersion: '2.9.2', updateAvailable: true, repairRequired: false, releaseUrl: null, detail: 'deno.exe' }
-          : { tool: 'deno', currentVersion: '2.9.1', latestVersion: '2.9.1', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'deno.exe' },
+          ? { tool: 'deno', currentVersion: '2.3.3', latestVersion: '2.9.2', updateAvailable: true, repairRequired: false, releaseUrl: null, detail: 'deno' }
+          : { tool: 'deno', currentVersion: '2.9.1', latestVersion: '2.9.1', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'deno' },
       }
     : null,
   updateYtDlpRuntime: async () => {
@@ -60,12 +62,12 @@ const appApi = {
     }
     await new Promise((resolve) => setTimeout(resolve, action === 'runtimeInstallMutex' ? 600 : 350))
     runtimeToolListener?.({ tool: 'yt-dlp', stage: 'installing', message: '正在安装下载内核...', percent: null })
-    return { tool: 'yt-dlp', path: 'I:\\tools\\yt-dlp.exe', version: '2026.07.04' }
+    return { tool: 'yt-dlp', path: '/Volumes/Test/tools/yt-dlp', version: '2026.07.04' }
   },
   getRuntimeInvocationCounts: async () => ({ denoInstallCalls }),
   openMediaTools: async () => null,
   pickDirectory: action === 'pickDirectory' || action === 'mediaPickDirectory'
-    ? reject('simulated Windows directory dialog failure')
+    ? reject('simulated macOS directory dialog failure')
     : async () => null,
   pickMediaFile: async () => null,
   pickMediaFiles: async () => [],
@@ -98,7 +100,7 @@ const appApi = {
     ? reject("Error invoking remote method 'shell:openPath': Error: Only local filesystem paths can be opened.")
     : async () => null,
   showItemInFolder: action === 'showItemInFolder'
-    ? reject('simulated Windows show item failure')
+    ? reject('simulated macOS show item failure')
     : async () => null,
   openExternal: async (url) => { openedExternalUrls.push(url) },
   getOpenedExternalUrls: async () => [...openedExternalUrls],
@@ -119,7 +121,7 @@ const appApi = {
           total: '2 MiB',
           speed: '1 MiB/s',
           eta: '00:01',
-          outputPath: 'I:\\Downloads\\fixture.mp4',
+          outputPath: '/Volumes/Test/Downloads/fixture.mp4',
           index: 1,
           totalJobs: 1,
         },
@@ -167,7 +169,7 @@ const scrollingTasks = Array.from({ length: 30 }, (_, index) => ({
     planVersion: 1,
     source: { kind: 'network-url', locator: `https://media.example/watch?v=${index + 1}`, displayName: `山海 Episode ${index + 1}`, mediaKind: 'video', durationSeconds: 42, formatName: 'webm', sourceId: String(index + 1), serviceName: 'FixtureTV' },
     recipe: { id: 'network-video', deliverableKind: 'video', extension: 'mp4' },
-    outputDirectory: 'I:\\成品',
+    outputDirectory: '/Volumes/Test/成品',
     deliveryName: `山海 Episode ${index + 1} - 视频.mp4`,
     steps: [{ id: 'verify-input', stage: 'preparing' }, { id: 'acquire-network', stage: 'acquiring', runtime: 'yt-dlp' }, { id: 'deliver', stage: 'delivering' }],
     runtimeVersions: { ffmpeg: 'fixture', ytDlp: '2026.07.04' },
@@ -198,7 +200,7 @@ let v3Workspace = {
       planVersion: 1,
       source: { kind: 'network-url', locator: 'https://www.youtube.com/watch?v=tls-fixture', displayName: 'TLS fixture', mediaKind: 'video', durationSeconds: 30, formatName: 'webm', sourceId: 'tls-fixture', serviceName: 'Youtube' },
       recipe: { id: 'network-video', deliverableKind: 'video', extension: 'mp4' },
-      outputDirectory: 'I:\\成品', deliveryName: 'TLS fixture - 视频.mp4',
+      outputDirectory: '/Volumes/Test/成品', deliveryName: 'TLS fixture - 视频.mp4',
       steps: [{ id: 'verify-input', stage: 'preparing' }, { id: 'acquire-network', stage: 'acquiring', runtime: 'yt-dlp' }, { id: 'deliver', stage: 'delivering' }],
       runtimeVersions: { ffmpeg: 'fixture', ytDlp: '2026.07.04', deno: '2.9.5' }, videoQuality: { mode: 'best' },
     },
@@ -216,11 +218,11 @@ let v3Workspace = {
       planVersion: 1,
       source: { kind: 'network-url', locator: 'https://www.youtube.com/watch?v=expired', displayName: 'Cookie expiry fixture', mediaKind: 'video', durationSeconds: 30, formatName: 'webm', sourceId: 'expired', serviceName: 'Youtube' },
       recipe: { id: 'network-video', deliverableKind: 'video', extension: 'mp4' },
-      outputDirectory: 'I:\\成品', deliveryName: 'Cookie expiry fixture - 视频.mp4',
+      outputDirectory: '/Volumes/Test/成品', deliveryName: 'Cookie expiry fixture - 视频.mp4',
       steps: [{ id: 'verify-input', stage: 'preparing' }, { id: 'acquire-network', stage: 'acquiring', runtime: 'yt-dlp' }, { id: 'deliver', stage: 'delivering' }],
       runtimeVersions: { ffmpeg: 'fixture', ytDlp: '2026.08.18' }, authenticationProfileId: 'auth-profile-expired', videoQuality: { mode: 'max-height', height: 1080 },
     },
-  }] : action === 'v3TaskVisibility' || action === 'v3ClearHistory' || action === 'v3DeliverableReveal' ? [{
+  }] : action === 'v3TaskVisibility' || action === 'v3RestartBusy' || action === 'v3ClearHistory' || action === 'v3DeliverableReveal' ? [{
     id: 'task-visible', state: action === 'v3ClearHistory' || action === 'v3DeliverableReveal' ? 'completed' : 'running', stage: action === 'v3ClearHistory' || action === 'v3DeliverableReveal' ? 'delivering' : 'acquiring', createdAt: '2026-07-13T10:00:00.000Z', updatedAt: '2026-07-13T10:01:00.000Z', problem: null,
     ...(action === 'v3TaskVisibility' ? {
       progress: { mediaKind: 'video', percent: 42.5, downloaded: '34.0MiB', total: '80.0MiB', speed: '4.2MiB/s', eta: '00:11' },
@@ -230,12 +232,12 @@ let v3Workspace = {
       planVersion: 1,
       source: { kind: 'network-url', locator: 'https://media.example/watch?v=42', displayName: '山海 Episode 42', mediaKind: 'video', durationSeconds: 42, formatName: 'webm', sourceId: '42', serviceName: 'FixtureTV' },
       recipe: { id: 'network-video', deliverableKind: 'video', extension: 'mp4' },
-      outputDirectory: 'I:\\成品', deliveryName: '山海 Episode 42 - 视频.mp4',
+      outputDirectory: '/Volumes/Test/成品', deliveryName: '山海 Episode 42 - 视频.mp4',
       steps: [{ id: 'verify-input', stage: 'preparing' }, { id: 'acquire-network', stage: 'acquiring', runtime: 'yt-dlp' }, { id: 'deliver', stage: 'delivering' }],
       runtimeVersions: { ffmpeg: 'fixture', ytDlp: '2026.07.04' }, authenticationProfileId: 'auth-profile-fixture', videoQuality: { mode: 'max-height', height: 1080 },
     },
   }] : [],
-  deliverables: action === 'v3DeliverableReveal' || action === 'v3ClearHistory' ? [{ id: 'deliverable-visible', taskId: 'task-visible', path: 'I:\\成品\\山海.mp4', deliveryName: '山海.mp4', createdAt: '2026-07-13T10:00:00.000Z' }] : [],
+  deliverables: action === 'v3DeliverableReveal' || action === 'v3ClearHistory' ? [{ id: 'deliverable-visible', taskId: 'task-visible', path: '/Volumes/Test/成品/山海.mp4', deliveryName: '山海.mp4', createdAt: '2026-07-13T10:00:00.000Z' }] : [],
   authenticationProfiles: action === 'v3TaskVisibility' || action === 'v3ClearHistory' || action === 'v3ExpiredCookieProblem' || action === 'v3TaskDiagnostics'
     ? [{ id: action === 'v3ExpiredCookieProblem' ? 'auth-profile-expired' : 'auth-profile-fixture', displayName: 'My MediaCookies', services: [action === 'v3ExpiredCookieProblem' ? 'youtube' : 'fixturetv'], serviceCookieCounts: [{ service: action === 'v3ExpiredCookieProblem' ? 'youtube' : 'fixturetv', cookieCount: 8 }], cookieCount: 8, health: 'ready', createdAt: '2026-07-13T09:00:00.000Z' }]
     : action === 'v3EnglishWorkbench'
@@ -243,7 +245,7 @@ let v3Workspace = {
           { id: 'auth-profile-youtube', displayName: 'YouTube login', services: ['youtube'], serviceCookieCounts: [{ service: 'youtube', cookieCount: 12 }], cookieCount: 12, health: 'ready', createdAt: '2026-07-11T08:00:00.000Z' },
           { id: 'auth-profile-bilibili', displayName: 'Bilibili login', services: ['bilibili-b-site'], serviceCookieCounts: [{ service: 'bilibili-b-site', cookieCount: 11 }], cookieCount: 11, health: 'ready', createdAt: '2026-07-12T08:00:00.000Z' },
         ]
-    : action === 'v3AuthProfile' || action === 'v3EnglishAuthProfile'
+    : action === 'v3AuthProfile' || action === 'v3EnglishAuthProfile' || authenticationRefreshAction
       ? [{ id: 'auth-profile-existing', displayName: 'Bilibili login', services: ['bilibili-b-site'], serviceCookieCounts: [{ service: 'bilibili-b-site', cookieCount: 11 }], cookieCount: 11, health: 'ready', createdAt: '2026-07-12T08:00:00.000Z' }]
       : [],
   systemOperations: [],
@@ -251,25 +253,78 @@ let v3Workspace = {
 let v3WorkspaceListener = null
 let v3QualityInspectionCalls = 0
 let v3LocalPickerCalls = 0
+let v3RuntimeUpdated = false
+let v3RuntimeChecks = 0
+let v3RuntimeStatusReads = 0
+let v3WorkspaceReads = 0
+let v3RestartCalls = 0
+let v3OutputPickerCalls = 0
 
 const mediaDockApi = {
   contractVersion: 1,
-  getWorkspaceSnapshot: async () => v3Workspace,
-  getDefaultOutputDirectory: async () => 'I:\\桌面',
+  getWorkspaceSnapshot: async () => {
+    v3WorkspaceReads += 1
+    if (action === 'v3SettingsRefresh' && v3WorkspaceReads > 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      if (v3WorkspaceReads === 2) throw new Error('Sign-in status temporarily unavailable')
+      v3Workspace = { ...v3Workspace, revision: 8, authenticationProfiles: [{
+        id: 'fresh-profile', displayName: 'Fresh local sign-in data', services: ['bilibili-b-site'],
+        serviceCookieCounts: [{ service: 'bilibili-b-site', cookieCount: 12 }], cookieCount: 12,
+        health: 'ready', createdAt: '2026-10-26T00:00:00.000Z',
+      }] }
+    }
+    return v3Workspace
+  },
+  getRuntimeStatus: async () => {
+    v3RuntimeStatusReads += 1
+    if (action === 'v3SettingsRefresh' && v3RuntimeStatusReads > 1) {
+      if (v3RuntimeChecks !== 0) throw new Error('Refresh unexpectedly requested online releases')
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      if (v3RuntimeStatusReads === 2) throw new Error('Runtime status temporarily unavailable')
+      v3RuntimeUpdated = true
+    }
+    return {
+      ytDlpVersion: v3RuntimeUpdated ? '2026.08.01' : '2026.07.04',
+      denoVersion: v3RuntimeUpdated && action !== 'v3RuntimePartialFailure' ? '2.9.5' : '2.9.2',
+      restartRequired: v3RuntimeUpdated,
+    }
+  },
+  restartApplication: async (language) => {
+    if (action === 'v3RestartBusy') throw new Error('Active tasks must disable restart')
+    if (language !== 'zh-CN') throw new Error('Restart confirmation must follow the UI language')
+    v3RestartCalls += 1
+    if (v3RestartCalls === 1) return { status: 'cancelled' }
+    if (v3RestartCalls === 2) throw new Error('Restart temporarily unavailable')
+    if (v3RestartCalls === 3) return { status: 'blocked', reason: 'tasks-active' }
+    return { status: 'restarting' }
+  },
+  getDefaultOutputDirectory: async () => '/Volumes/Test/桌面',
   pickLocalSource: async () => {
-    if (action === 'v3LocalFlow') return 'I:\\素材\\field-note.wav'
+    if (action === 'v3LocalFlow') return '/Volumes/Test/素材/field-note.wav'
     if (action === 'v3MergeFlow') {
       v3LocalPickerCalls += 1
-      return v3LocalPickerCalls === 1 ? 'I:\\素材\\IDM-video.mp4' : 'I:\\素材\\IDM-audio.m4a'
+      return v3LocalPickerCalls === 1 ? '/Volumes/Test/素材/IDM-video.mp4' : '/Volumes/Test/素材/IDM-audio.m4a'
     }
     return null
   },
-  pickLocalSources: async () => action === 'v3MergeFlow'
-    ? ['I:\\素材\\IDM-video.mp4', 'I:\\素材\\IDM-audio.m4a']
-    : [],
-  pickOutputDirectory: async () => action === 'v3LocalFlow' || action === 'v3MergeFlow' || action === 'v3NetworkFlow' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection' || action === 'v3CollectionFlow' ? 'I:\\成品' : null,
+  pickLocalSources: async () => {
+    if (action === 'v3PickerFailures') {
+      v3LocalPickerCalls += 1
+      if (v3LocalPickerCalls === 1) throw new Error('Local picker temporarily unavailable')
+    }
+    return action === 'v3MergeFlow' ? ['/Volumes/Test/素材/IDM-video.mp4', '/Volumes/Test/素材/IDM-audio.m4a'] : []
+  },
+  pickOutputDirectory: async () => {
+    if (action === 'v3PickerFailures') {
+      v3OutputPickerCalls += 1
+      if (v3OutputPickerCalls % 2 === 1) throw new Error('Output picker temporarily unavailable')
+      return '/Volumes/Test/恢复后的成品'
+    }
+    return action === 'v3LocalFlow' || action === 'v3MergeFlow' || action === 'v3NetworkFlow' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection' || action === 'v3CollectionFlow' ? '/Volumes/Test/成品' : null
+  },
   importAuthenticationProfile: async () => {
-    if (action !== 'v3AuthProfile' && action !== 'v3EnglishAuthProfile') return null
+    if (action !== 'v3AuthProfile' && action !== 'v3EnglishAuthProfile' && !authenticationRefreshAction) return null
+    cookiesRefreshed = true
     v3Workspace = {
       ...v3Workspace,
       revision: v3Workspace.revision + 1,
@@ -302,12 +357,16 @@ const mediaDockApi = {
     openedExternalUrls.push(urls[resource])
   },
   exportSupportDiagnostics: async () => action === 'v3SupportDiagnostics'
-    ? 'I:\\Downloads\\media-dock-support-20260714.txt'
+    ? '/Volumes/Test/Downloads/media-dock-support-20260714.txt'
     : null,
   exportTaskDiagnostics: async (input) => action === 'v3TaskDiagnostics' && input?.taskId === 'task-expired-cookie'
-    ? 'I:\\Downloads\\media-dock-task-task-expired-cookie-20260818.txt'
+    ? '/Volumes/Test/Downloads/media-dock-task-task-expired-cookie-20260818.txt'
     : null,
-  inspectSource: async (input) => (action === 'v3SlowInspection' && await new Promise((resolve) => setTimeout(resolve, 1800)), action === 'v3CollectionProblem'
+  inspectSource: async (input) => (action === 'v3SlowInspection' && await new Promise((resolve) => setTimeout(resolve, 1800)), action === 'v3PreviewRecovery' && !cookiesRefreshed
+    ? { status: 'needs-attention', problem: { code: 'authentication.preview-only', category: 'authentication', stage: 'preparing', titleKey: 'problem.authenticationPreviewOnly.title', summaryKey: 'problem.authenticationPreviewOnly.summary', actions: [{ id: 'update-authentication', kind: 'update-authentication' }] } }
+    : action === 'v3LoginCheckUnavailable'
+      ? { status: 'needs-attention', problem: { code: 'network.authentication-check-unavailable', category: 'network', stage: 'preparing', titleKey: 'problem.authenticationCheckUnavailable.title', summaryKey: 'problem.authenticationCheckUnavailable.summary', actions: [{id:'retry-task',kind:'retry-task'}] } }
+    : action === 'v3CollectionProblem'
     ? {
         status: 'needs-attention',
         problem: {
@@ -359,7 +418,7 @@ const mediaDockApi = {
           { id: 'keep-original', deliverableKind: 'source', extension: 'wav' },
         ],
       }
-    : action === 'v3NetworkFlow' || action === 'v3DefaultDesktop' || action === 'v3SlowInspection' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection'
+    : authenticationRefreshAction || action === 'v3NetworkFlow' || action === 'v3DefaultDesktop' || action === 'v3SlowInspection' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection' || action === 'v3PickerFailures'
       ? {
           status: 'ready',
           source: {
@@ -428,12 +487,13 @@ const mediaDockApi = {
       : null),
   inspectVideoQualities: async (source) => {
     v3QualityInspectionCalls += 1
+    if (action === 'v3QualityAuthenticationRecovery' && !cookiesRefreshed) throw new Error('[authentication.preview-only] Only preview format is available')
     return {
       availableHeights: action === 'v3CollectionGrouping' && source.sourceId === 'pv-1' ? [1440, 1080, 720] : [2160, 1080, 720],
       qualityOptions: action === 'v3CollectionGrouping' && source.sourceId === 'pv-1'
         ? [{ height: 1440, estimatedBytes: 60000000 }, { height: 1080, estimatedBytes: 40000000 }, { height: 720, estimatedBytes: 20000000 }]
         : [{ height: 2160, estimatedBytes: 80000000 }, { height: 1080, estimatedBytes: 40000000 }, { height: 720, estimatedBytes: 20000000 }],
-      authenticationProfileId: action === 'v3PreflightMismatch' && v3QualityInspectionCalls > 1 ? null : 'auth-profile-fixture',
+      authenticationProfileId: authenticationRefreshAction ? v3Workspace.authenticationProfiles[0]?.id ?? null : action === 'v3PreflightMismatch' && v3QualityInspectionCalls > 1 ? null : 'auth-profile-fixture',
       authenticationProfileDisplayName: action === 'v3PreflightMismatch' && v3QualityInspectionCalls > 1 ? null : 'My MediaCookies',
     }
   },
@@ -472,21 +532,32 @@ const mediaDockApi = {
       ? { ffmpeg: 'fixture-ffmpeg', ytDlp: '2026.07.04-fixture' }
       : { ffmpeg: 'fixture-ffmpeg' },
     ...(source.kind === 'network-url' ? { videoQuality: videoQuality ?? { mode: 'best' } } : {}),
-    ...(source.kind === 'network-url' ? { authenticationProfileId: 'auth-profile-fixture' } : {}),
+    ...(source.kind === 'network-url' ? { authenticationProfileId: authenticationRefreshAction ? v3Workspace.authenticationProfiles[0]?.id : 'auth-profile-fixture' } : {}),
   })},
   revealDeliverable: async (deliverableId) => {
     if (action === 'v3DeliverableReveal' && deliverableId !== 'deliverable-visible') throw new Error('Wrong Deliverable id')
   },
-  checkRuntimeUpdates: async () => ({
-    ytDlp: { tool: 'yt-dlp', currentVersion: '2026.07.04', latestVersion: action === 'v3RuntimeCheck' ? '2026.08.01' : '2026.07.04', updateAvailable: action === 'v3RuntimeCheck', repairRequired: false, releaseUrl: null, detail: 'yt-dlp' },
-    deno: { tool: 'deno', currentVersion: '2.9.2', latestVersion: action === 'v3RuntimeCheck' ? '2.9.5' : '2.9.2', updateAvailable: action === 'v3RuntimeCheck', repairRequired: false, releaseUrl: null, detail: 'deno' },
+  checkRuntimeUpdates: async () => {
+    v3RuntimeChecks += 1
+    if (action === 'v3RuntimeCheck' && v3RuntimeChecks > 1) await new Promise((resolve) => setTimeout(resolve, 400))
+    return v3RuntimeUpdated ? {
+      ytDlp: { tool: 'yt-dlp', currentVersion: '2026.08.01', latestVersion: '2026.08.01', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'yt-dlp' },
+      deno: { tool: 'deno', currentVersion: '2.9.5', latestVersion: '2.9.5', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'deno' },
+      restartRequired: true,
+      defaultMirrorBaseUrl: 'https://gh-proxy.com/',
+    } : {
+    ytDlp: { tool: 'yt-dlp', currentVersion: '2026.07.04', latestVersion: ['v3RuntimeCheck', 'v3RuntimePartialFailure'].includes(action) ? '2026.08.01' : '2026.07.04', updateAvailable: ['v3RuntimeCheck', 'v3RuntimePartialFailure'].includes(action), repairRequired: false, releaseUrl: null, detail: 'yt-dlp' },
+    deno: { tool: 'deno', currentVersion: '2.9.2', latestVersion: ['v3RuntimeCheck', 'v3RuntimePartialFailure'].includes(action) ? '2.9.5' : '2.9.2', updateAvailable: ['v3RuntimeCheck', 'v3RuntimePartialFailure'].includes(action), repairRequired: false, releaseUrl: null, detail: 'deno' },
     restartRequired: false,
     defaultMirrorBaseUrl: 'https://gh-proxy.com/',
-  }),
+    }
+  },
   updateRuntimeTools: async (input) => {
     if (action === 'v3RuntimeCheck' && (input?.source !== 'mirror' || input.mirrorBaseUrl !== 'https://mirror.example/ghproxy/')) {
       throw new Error('Renderer did not pass the selected custom runtime mirror')
     }
+    v3RuntimeUpdated = true
+    if (action === 'v3RuntimePartialFailure') throw new Error('Deno download failed after yt-dlp was installed')
     return {
       ytDlp: { tool: 'yt-dlp', currentVersion: '2026.08.01', latestVersion: '2026.08.01', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'yt-dlp' },
       deno: { tool: 'deno', currentVersion: '2.9.5', latestVersion: '2.9.5', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'deno' },
@@ -495,6 +566,7 @@ const mediaDockApi = {
     }
   },
   createTask: async (plan) => {
+    if (authenticationRefreshAction && (!cookiesRefreshed || plan.authenticationProfileId !== v3Workspace.authenticationProfiles[0]?.id)) throw new Error('Task Plan still uses the old Authentication Profile')
     if (action === 'v3PreflightMismatch') throw new Error('Cookie preflight was bypassed and an invalid task reached the queue')
     if (action === 'v3QualitySelection' && v3QualityInspectionCalls < 2) throw new Error('Selected quality was not checked again before queue creation')
     v3Workspace = {
@@ -549,7 +621,7 @@ const mediaDockApi = {
     v3WorkspaceListener?.(v3Workspace)
     await new Promise((resolve) => setTimeout(resolve, 80))
     const task = v3Workspace.tasks[0]
-    const deliveryPath = `I:\\成品\\${task.plan.deliveryName}`
+    const deliveryPath = `/Volumes/Test/成品/${task.plan.deliveryName}`
     v3Workspace = {
       ...v3Workspace,
       revision: 3,
@@ -576,7 +648,7 @@ const mediaDockApi = {
       deliverables: v3Workspace.tasks.map((task, index) => ({
         id: `deliverable-v3-collection-${index + 1}`,
         taskId: task.id,
-        path: `I:\\成品\\${task.plan.deliveryName}`,
+        path: `/Volumes/Test/成品/${task.plan.deliveryName}`,
         deliveryName: task.plan.deliveryName,
         createdAt: '2026-07-13T07:00:03.000Z',
       })),

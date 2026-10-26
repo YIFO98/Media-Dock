@@ -3,16 +3,16 @@ import test from 'node:test'
 
 import { buildSanitizedSupportDiagnostics, buildSanitizedTaskDiagnostics } from '../dist-electron/v3/supportDiagnostics.js'
 
-test('support diagnostics keep cross-platform evidence while redacting user media and authentication details', () => {
+test('support diagnostics keep macOS evidence while redacting user media and authentication details', () => {
   const report = buildSanitizedSupportDiagnostics({
     generatedAt: '2026-07-14T08:00:00.000Z',
     appVersion: '3.0.0-preview',
     uiLanguage: 'zh-CN',
-    platform: { name: 'win32', release: '10.0.26100', arch: 'x64' },
+    platform: { name: 'darwin', release: '25.0.0', arch: 'arm64' },
     processVersions: { electron: '39.0.0', chrome: '140.0.0.0', node: '22.0.0' },
     runtimes: { ffmpeg: '7.1', ffprobe: '7.1', ytDlp: '2026.07.04', deno: '2.9.2' },
-    homeDirectory: 'C:\\Users\\XiaoFu',
-    recentError: 'Failed C:\\Users\\XiaoFu\\Videos\\private.mp4 and F:\\Desktop\\second-private.mp4 plus /Volumes/Media/third-private.mov, /data/media/fourth-private.webm, \\\\studio-nas\\private-share\\fifth-private.mkv, clips/sixth-private.mp4, and seventh-private.mov --cookies C:\\Users\\XiaoFu\\cookies.txt https://example.com/watch/private-title?v=42&token=url-secret SESSDATA=cookie-secret\nCookie: SESSDATA=header-secret; bili_jct=csrf-secret\nAuthorization: Bearer bearer-secret',
+    homeDirectory: '/Users/XiaoFu',
+    recentError: 'Failed /Users/XiaoFu/Videos/private.mp4 and /Users/XiaoFu/Desktop/second-private.mp4 plus /Volumes/Media/third-private.mov, /data/media/fourth-private.webm, /Volumes/studio-nas/private-share/fifth-private.mkv, clips/sixth-private.mp4, and seventh-private.mov --cookies /Users/XiaoFu/cookies.txt https://example.com/watch/private-title?v=42&token=url-secret SESSDATA=cookie-secret\nCookie: SESSDATA=header-secret; bili_jct=csrf-secret\nAuthorization: Bearer bearer-secret',
     workspace: {
       contractVersion: 1,
       revision: 17,
@@ -27,7 +27,7 @@ test('support diagnostics keep cross-platform evidence while redacting user medi
           planVersion: 1,
           source: { kind: 'network-url', locator: 'https://example.com/watch?v=42&token=plan-secret', displayName: 'Private video title', mediaKind: 'video', durationSeconds: 42, formatName: 'webm', sourceId: 'private-source', serviceName: 'FixtureTV' },
           recipe: { id: 'network-video', deliverableKind: 'video', extension: 'mp4' },
-          outputDirectory: 'C:\\Users\\XiaoFu\\Videos',
+          outputDirectory: '/Users/XiaoFu/Videos',
           deliveryName: 'Private video title.mp4',
           steps: [{ id: 'acquire-network', stage: 'acquiring', runtime: 'yt-dlp' }],
           runtimeVersions: { ffmpeg: '7.1', ytDlp: '2026.07.04', deno: '2.9.2' },
@@ -36,14 +36,14 @@ test('support diagnostics keep cross-platform evidence while redacting user medi
         },
         problem: { code: 'network.acquire.failed', category: 'network', stage: 'acquiring', titleKey: 'private-title-key', summaryKey: 'private-summary-key', actions: [] },
       }],
-      deliverables: [{ id: 'deliverable-private-id', taskId: 'task-private-id', path: 'C:\\Users\\XiaoFu\\Videos\\Private video title.mp4', deliveryName: 'Private video title.mp4', createdAt: '2026-07-14T07:56:00.000Z' }],
+      deliverables: [{ id: 'deliverable-private-id', taskId: 'task-private-id', path: '/Users/XiaoFu/Videos/Private video title.mp4', deliveryName: 'Private video title.mp4', createdAt: '2026-07-14T07:56:00.000Z' }],
       authenticationProfiles: [{ id: 'auth-private-id', displayName: 'My private Bilibili login', services: ['bilibili-b-site'], health: 'ready', createdAt: '2026-07-14T07:00:00.000Z' }],
       systemOperations: [],
     },
   })
 
   assert.match(report, /Media Dock Support Diagnostics/)
-  assert.match(report, /platform: win32 10\.0\.26100 x64/)
+  assert.match(report, /platform: darwin 25\.0\.0 arm64/)
   assert.match(report, /yt-dlp: 2026\.07\.04/)
   assert.match(report, /network\.acquire\.failed/)
   assert.match(report, /authentication profiles: 1/)
@@ -70,7 +70,7 @@ test('support diagnostics keep cross-platform evidence while redacting user medi
     'seventh-private.mov',
     'private-title',
     'SESSDATA',
-    '--cookies C:',
+    '--cookies /Users',
     '?v=42',
   ]) {
     assert.doesNotMatch(report, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
@@ -88,7 +88,7 @@ test('one-task diagnostics retain actionable process evidence without leaking th
       planVersion: 1,
       source: { kind: 'network-url', locator: 'https://www.youtube.com/watch?v=private-video&token=plan-secret', displayName: 'Private YouTube title', mediaKind: 'video', durationSeconds: 42, formatName: 'webm', sourceId: 'private-video', serviceName: 'YouTube' },
       recipe: { id: 'network-video', deliverableKind: 'video', extension: 'mp4' },
-      outputDirectory: 'C:\\Users\\XiaoFu\\Videos',
+      outputDirectory: '/Users/XiaoFu/Videos',
       deliveryName: 'Private YouTube title.mp4',
       steps: [{ id: 'acquire-network', stage: 'acquiring', runtime: 'yt-dlp' }],
       runtimeVersions: { ffmpeg: '7.1', ytDlp: '2026.08.18', deno: '2.9.5' },
@@ -107,14 +107,14 @@ test('one-task diagnostics retain actionable process evidence without leaking th
     generatedAt: '2026-08-18T08:00:00.000Z',
     appVersion: '3.0.2',
     uiLanguage: 'zh-CN',
-    platform: { name: 'win32', release: '10.0.26100', arch: 'x64' },
+    platform: { name: 'darwin', release: '25.0.0', arch: 'arm64' },
     processVersions: { electron: '39.0.0', chrome: '140.0.0.0', node: '22.0.0' },
     runtimes: { ffmpeg: '7.1', ffprobe: '7.1', ytDlp: '2026.08.18', deno: '2.9.5' },
-    homeDirectory: 'C:\\Users\\XiaoFu',
+    homeDirectory: '/Users/XiaoFu',
     task,
     diagnosticEvidence: {
       recordedAt: '2026-08-18T07:56:00.000Z',
-      detail: 'ERROR: HTTP Error 403 for C:\\Users\\XiaoFu\\Videos\\Private YouTube title.mp4 https://www.youtube.com/watch?v=private-video&token=url-secret Cookie: SID=cookie-secret',
+      detail: 'ERROR: HTTP Error 403 for /Users/XiaoFu/Videos/Private YouTube title.mp4 https://www.youtube.com/watch?v=private-video&token=url-secret Cookie: SID=cookie-secret',
     },
   })
 
