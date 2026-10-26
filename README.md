@@ -15,7 +15,7 @@ Media Dock · 泊是器度 QIDU 旗下的本地优先媒体获取、音画合并
 
 | 版本线 | 状态 | 适合谁 |
 | --- | --- | --- |
-| 3.0.4-preview.4 | 当前源码维护候选，仅 macOS | 需要刷新、重启与 Cookie 修复的用户 |
+| 3.0.4-preview.5 | 当前源码维护候选，仅 macOS | 需要原生启动、刷新、重启与 Cookie 修复的用户 |
 | 3.0.2 | 既有稳定发布 | 使用 3.0 工作台、任务模型与独立数据目录的用户 |
 | [3.0.3](https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.3) | 已发布的兼容性预览 | 测试 YouTube 403 恢复与网络中断提示的用户 |
 | [2.1.2](https://github.com/Yifo98/Media-Dock/releases/tag/v2.1.2) | 旧版维护线 | 需要旧界面和旧数据布局的用户 |
@@ -53,7 +53,7 @@ Media Dock 3 使用独立的 `Media Dock Data/v3/` 数据边界，不会改写 2
 
 前往 [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases)：
 
-- 已有发布包请选择对应架构的 **macOS** 资产；本次 `3.0.4-preview.4` 更新通过源码启动器使用，尚未发布新安装包。
+- 已有发布包请选择对应架构的 **macOS** 资产；本次 `3.0.4-preview.5` 更新通过源码启动器使用，尚未发布新安装包。
 - macOS 只保留一个入口：`Launch Media Dock.command`；应用运行组件收纳在 `core/Media Dock.app`。
 
 标准分享包由 `electron-builder` 生成，并在启动入口同级的 `Media Dock Data/` 保存任务数据、工具和缓存。带 `Unsigned` 标记的资产只供可接受系统安全提示的测试者；它不是已经取得平台信任的签名包。
@@ -79,10 +79,12 @@ MediaCookies 不读取密码，也不会把 Cookie 上传到网络。
 
 ```bash
 npm ci --include=dev
-npm run launch:mac:v3
+npm run build:launcher:mac
 ```
 
-项目外层的 `Launch Media Dock 3 Preview.command` 是 macOS 本地预览入口；缺失依赖时按锁文件自动恢复，不完整的 Electron 运行组件会尝试修复。它调用仓库内的 `scripts/launch-mac-v3-preview.sh`，并使用隔离的 v3 数据目录。仓库同时保留 `scripts/Launch Media Dock 3 Preview.command` 作为不含本机路径的迁移副本。
+日常双击项目旁的 **`Media Dock.app`**：先显示原生准备提示，随后直接进入桌面应用，不打开终端。使用菜单退出或 ⌘Q 后，应用与辅助进程一起结束。首次生成入口需要 macOS 命令行开发工具（Swift）；入口生成后会复用现有依赖恢复、构建与 v3 数据流程。请保持入口与项目文件夹的相对位置。
+
+命令行排错仍可使用 `npm run launch:mac:v3` 或原 `Launch Media Dock 3 Preview.command`。这一方式的终端窗口由 Terminal 自身的退出偏好决定；应用不会修改这些偏好或关闭其他终端页。原生入口的准备日志位于 `output/launcher/startup.log`，不收集应用运行期间的输出。
 
 ## 验证
 
@@ -118,7 +120,7 @@ Media Dock · 泊 is a QIDU local-first desktop workspace for acquiring public m
 
 | Channel | Status | Audience |
 | --- | --- | --- |
-| 3.0.4-preview.4 | Current source preview, macOS only | Users testing settings refresh, restart and Cookie fixes |
+| 3.0.4-preview.5 | Current source preview, macOS only | Users testing native launch, settings refresh, restart and Cookie fixes |
 | 3.0.2 | Existing stable release | Users adopting the workspace, task model, and isolated 3.0 data boundary |
 | [3.0.3](https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.3) | Published compatibility preview | Users testing YouTube 403 recovery and network interruption guidance |
 | [2.1.2](https://github.com/Yifo98/Media-Dock/releases/tag/v2.1.2) | Legacy maintenance line | Users who still need the previous UI and data layout |
@@ -140,7 +142,7 @@ Watch the [16-second bilingual feature demo](docs/showcase/3.0.0/Media-Dock-3.0.
 
 ### Install
 
-Choose the macOS asset for your architecture from [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases). The `3.0.4-preview.4` changes are available through the source launcher; no new binary package has been published.
+Choose the macOS asset for your architecture from [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases). The `3.0.4-preview.5` changes are available through the source launcher; no new binary package has been published.
 
 - macOS: run the single root entry, `Launch Media Dock.command`; the internal app runtime remains under `core/Media Dock.app`.
 
@@ -152,9 +154,11 @@ In the local 3.0.4 maintenance candidate, explicit expired-Cookie and preview-on
 
 ```bash
 npm ci --include=dev
-npm run launch:mac:v3
+npm run build:launcher:mac
 npm test
 npm run lint
 ```
+
+After generating the source entry, double-click `Media Dock.app` beside the project. It prepares the build without Terminal, then replaces the launcher with the native runtime. Quit or ⌘Q ends the application and its helpers. Keep the entry and project together; `.command` remains a diagnostic option.
 
 See the [3.0 release gates](docs/release/3.0-release-gates.md), [release guide](docs/RELEASES.md), and [OpenAI Build Week checklist](docs/hackathon/openai-hackathon-requirements.md) for the full verification and submission boundaries.

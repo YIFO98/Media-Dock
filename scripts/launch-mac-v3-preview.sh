@@ -82,4 +82,10 @@ fi
 
 cd "$PROJECT_ROOT"
 zsystem flock -u "$MEDIA_DOCK_LAUNCH_LOCK_FD"
-exec "$ELECTRON_BIN" "$PROJECT_ROOT"
+if [[ "${MEDIA_DOCK_PREPARE_ONLY:-0}" == "1" ]]; then
+  exit 0
+fi
+
+# Execute the native runtime directly so no Node CLI wrapper stays attached.
+ELECTRON_RUNTIME="$ELECTRON_PACKAGE_DIR/dist/$(<"$ELECTRON_PATH_FILE")"
+exec "$ELECTRON_RUNTIME" "$PROJECT_ROOT"

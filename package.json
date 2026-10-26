@@ -1,7 +1,7 @@
 {
   "name": "media-dock",
   "private": true,
-  "version": "3.0.4-preview.4",
+  "version": "3.0.4-preview.5",
   "type": "module",
   "main": "dist-electron/main.js",
   "description": "A compact local media download and processing desktop app.",
@@ -29,7 +29,8 @@
     "launch:mac": "zsh scripts/launch-mac.sh",
     "launch:mac:v3": "zsh scripts/launch-mac-v3-preview.sh",
     "dist": "npm run dist:mac",
-    "dist:mac": "zsh scripts/build-mac-share.sh"
+    "dist:mac": "zsh scripts/build-mac-share.sh",
+    "build:launcher:mac": "node scripts/build-mac-launcher.mjs"
   },
   "dependencies": {
     "extract-zip": "^2.0.1",

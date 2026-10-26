@@ -161,6 +161,15 @@ test('an incomplete Electron installation repairs the runtime before launching',
   assert.match(result.output, /fixture Electron started/)
 })
 
+test('native launcher preparation finishes without starting a runtime or leaving a wrapper', (t) => {
+  const fixture = createLauncherFixture(t)
+  const result = fixture.run({ MEDIA_DOCK_PREPARE_ONLY: '1' })
+  assert.equal(result.status, 0, result.output)
+  assert.match(result.output, /launcher is ready/)
+  assert.doesNotMatch(result.output, /fixture Electron started/)
+  assert.equal(result.calls, 'ci --include=dev --no-audit --no-fund\nrun build\n')
+})
+
 test('launcher dry-run reports missing dependencies without installing or building', { skip: process.platform !== 'darwin' }, (t) => {
   const result = createLauncherFixture(t).run({ MEDIA_DOCK_LAUNCHER_DRY_RUN: '1' })
   assert.equal(result.status, 1)
