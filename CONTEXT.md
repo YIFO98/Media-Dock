@@ -6,7 +6,7 @@ Media Dock 是一个把网络内容与本地媒体转化为可用成品的本地
 
 当前产品仅支持 macOS（Apple Silicon arm64 与 Intel x64），从 `3.0.4-preview.4` 起不再维护 Windows 运行、构建、签名或 CI 分支。旧版发布记录保留为历史证据；此前 ADR 中的多平台要求以 [ADR 0038](docs/adr/0038-support-macos-only.md) 为准，其他数据与签名安全边界保持有效。
 
-日常源码启动使用项目旁生成的 `Media Dock.app`，不通过 Terminal。`.command` 保留为命令行诊断入口；退出时只处理应用自己的进程，不修改 Terminal 全局偏好或关闭其他会话。
+唯一用户启动入口为 `Media Dock.app`，源码工作区和未来便携包都不再提供 `.command` 入口。源码内部准备脚本只处理依赖与构建，不单独启动应用。退出时只处理应用自己的进程，不修改 Terminal 全局偏好或关闭其他会话。详见 [ADR 0039](docs/adr/0039-use-one-native-macos-entry.md)。
 
 ## Language
 

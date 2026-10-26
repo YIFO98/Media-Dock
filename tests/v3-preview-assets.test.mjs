@@ -82,9 +82,10 @@ function canonicalTextDigest(path) {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
 
-test('the v3 branch keeps its tracked launcher entry point unambiguous', () => {
-  assert.equal(existsSync('scripts/launch-mac-v3-preview.sh'), true)
-  assert.equal(existsSync('scripts/Launch Media Dock 3 Preview.command'), true)
+test('the source workspace has one native entry and no duplicate command launchers', () => {
+  assert.equal(existsSync('scripts/prepare-mac-app.sh'), true)
+  assert.equal(existsSync('scripts/build-mac-launcher.mjs'), true)
+  assert.deepEqual(readdirSync('scripts').filter((name) => name.endsWith('.command')), [])
   assert.deepEqual(readdirSync('.').filter((name) => name.endsWith('.command')), [])
 })
 

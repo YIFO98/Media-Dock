@@ -5,14 +5,9 @@
 ## Daily Use
 
 - `../Media Dock.app`
-  - 日常原生启动入口，不弹终端；菜单退出或 ⌘Q 后不保留启动器进程。
+  - 唯一日常原生启动入口，不弹终端；菜单退出或 ⌘Q 后不保留启动器进程。
   - 通过 `npm run build:launcher:mac` 生成（需要 Swift 命令行工具）；入口和项目使用相对路径关联，请一起移动。
   - 准备失败会显示原生提示，准备日志保存在项目 `output/launcher/startup.log`。
-- `../Launch Media Dock 3 Preview.command`
-  - macOS 命令行排错入口。它和 `Media Dock Project/` 并排放在外层，双击即可构建并打开当前 3.0 预览。
-  - 需要 Node.js 24 或更新版本。依赖被清理后，启动器会按 `package-lock.json` 恢复依赖；桌面运行组件不完整时会尝试修复。首次恢复需要联网，失败时终端保留明确提示。
-  - `MEDIA_DOCK_LAUNCHER_DRY_RUN=1 MEDIA_DOCK_SKIP_BUILD=1` 只检查本地启动条件，不自动安装、修复或构建。
-  - 可恢复副本保存在 `scripts/Launch Media Dock 3 Preview.command`；迁移电脑后可直接运行，也可复制到项目文件夹旁边。
 - `Media Dock Project/`
   - 完整开发仓库；源码、测试、构建产物、工具、应用数据和 `.git` 都收在这里。
 
@@ -62,11 +57,9 @@ The following generated clutter was removed:
 
 外层 `Media-Dock/` 保留：
 
-- `Media Dock.app`（日常启动）
-
-- `Launch Media Dock 3 Preview.command`
+- `Media Dock.app`（唯一启动入口）
 - `Media Dock Project/`
 
-两个启动入口都依赖同级的项目总文件夹，不能只移动 `.app` 或 `.command`。
+源码入口依赖同级的项目总文件夹，请保持 `Media Dock.app` 与 `Media Dock Project/` 的相对位置。
 
-若从 GitHub 重新下载，仓库内的 `scripts/Launch Media Dock 3 Preview.command` 是同一启动器的可恢复副本，不包含任何本机路径或私人数据。
+从 GitHub 下载源码后运行 `npm ci --include=dev` 和 `npm run build:launcher:mac` 生成唯一入口。`scripts/prepare-mac-app.sh` 仅供原生入口内部准备依赖和构建，不会单独启动桌面端。

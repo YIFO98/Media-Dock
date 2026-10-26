@@ -62,10 +62,13 @@ test('the macOS candidate is built and verified on a native macOS runner', () =>
 })
 
 test('macOS packages expose exactly one launcher', () => {
-  assert.match(macBuildScript, /Launch Media Dock\.command/u)
-  assert.match(macBuildScript, /core\/Media Dock\.app/u)
-  assert.match(macVerifyScript, /Launch Media Dock\.command/u)
-  assert.match(macVerifyScript, /core\/Media Dock\.app/u)
+  assert.match(macBuildScript, /ditto "\$PACKAGED_APP" "\$PORTABLE_STAGE\/Media Dock\.app"/u)
+  assert.doesNotMatch(macBuildScript, /\.command|PORTABLE_STAGE\/core/u)
+  assert.match(macVerifyScript, /APP_PATH="\$INSPECT_DIR\/Media Dock\.app"/u)
+  assert.match(macVerifyScript, /ROOT_COMMANDS\[@\].*-eq 0/u)
+  assert.match(macVerifyScript, /env -u MEDIA_DOCK_PORTABLE_ROOT MEDIA_DOCK_STARTUP_PROBE=1/u)
+  assert.equal(packageJson.scripts['launch:mac'], undefined)
+  assert.equal(packageJson.scripts['launch:mac:v3'], undefined)
 })
 
 test('3.0 startup uses only the v3 Authentication Profile store', () => {

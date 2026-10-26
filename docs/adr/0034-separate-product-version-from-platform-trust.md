@@ -2,6 +2,8 @@
 
 > Platform scope updated on 2026-10-26 by [ADR 0038](0038-support-macos-only.md): macOS is the sole supported platform. Earlier Windows-specific requirements below are historical; remaining product and safety constraints continue to apply.
 
+> Launcher layout updated by [ADR 0039](0039-use-one-native-macos-entry.md): current packages expose only the root `Media Dock.app`; the older command-wrapper layout below is historical.
+
 ## Decision
 
 Media Dock reports two independent release states:

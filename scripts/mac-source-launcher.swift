@@ -12,7 +12,7 @@ final class Launcher: NSObject, NSApplicationDelegate {
             let relative = try String(contentsOf: resources.appendingPathComponent("project-relative-path.txt"), encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let project = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(relative).standardizedFileURL
-            let script = project.appendingPathComponent("scripts/launch-mac-v3-preview.sh")
+            let script = project.appendingPathComponent("scripts/prepare-mac-app.sh")
             guard FileManager.default.fileExists(atPath: script.path) else {
                 throw NSError(domain: "MediaDockLauncher", code: 1, userInfo: [NSLocalizedDescriptionKey: "找不到项目，请把启动入口和项目文件夹保持在原来的相对位置。"])
             }
@@ -31,9 +31,7 @@ final class Launcher: NSObject, NSApplicationDelegate {
             process.executableURL = URL(fileURLWithPath: "/bin/zsh")
             process.arguments = [script.path]
             process.currentDirectoryURL = project
-            var environment = ProcessInfo.processInfo.environment
-            environment["MEDIA_DOCK_PREPARE_ONLY"] = "1"
-            process.environment = environment
+            process.environment = ProcessInfo.processInfo.environment
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = log
             process.standardError = log

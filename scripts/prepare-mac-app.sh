@@ -10,7 +10,7 @@ ELECTRON_PATH_FILE="$ELECTRON_PACKAGE_DIR/path.txt"
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 fail() {
-  print -u2 "Media Dock 3 Preview launcher could not start."
+  print -u2 "Media Dock preparation could not finish."
   print -u2 "$1"
   if [[ -t 0 && -t 1 && "${MEDIA_DOCK_LAUNCHER_DRY_RUN:-0}" != "1" ]]; then
     read -r "?按回车键关闭…" || true
@@ -18,7 +18,7 @@ fail() {
   exit 1
 }
 
-[[ "$(uname -s)" == "Darwin" ]] || fail "This launcher is for macOS."
+[[ "$(uname -s)" == "Darwin" ]] || fail "Preparation requires macOS."
 [[ -f "$PROJECT_ROOT/package.json" ]] || fail "package.json was not found at $PROJECT_ROOT"
 command -v node >/dev/null 2>&1 || fail "未找到 Node.js。请安装 Node.js 24 后重新打开。"
 command -v npm >/dev/null 2>&1 || fail "未找到 npm。请修复 Node.js 24 安装后重新打开。"
@@ -70,11 +70,11 @@ fi
 [[ -f "$PROJECT_ROOT/dist/index.html" ]] || fail "The web build is missing. Run npm run build first."
 [[ -f "$PROJECT_ROOT/dist-electron/main.js" ]] || fail "The Electron build is missing. Run npm run build first."
 
-print "Media Dock 3 Preview launcher is ready."
+print "Media Dock preparation is ready."
 print "Project root: $PROJECT_ROOT"
 print "Electron: $ELECTRON_BIN"
 print "Data boundary: Media Dock Data/v3"
-print "[3/3] 正在打开 Media Dock…"
+print "[3/3] 准备完成，等待原生入口接管…"
 
 if [[ "${MEDIA_DOCK_LAUNCHER_DRY_RUN:-0}" == "1" ]]; then
   exit 0
@@ -82,10 +82,3 @@ fi
 
 cd "$PROJECT_ROOT"
 zsystem flock -u "$MEDIA_DOCK_LAUNCH_LOCK_FD"
-if [[ "${MEDIA_DOCK_PREPARE_ONLY:-0}" == "1" ]]; then
-  exit 0
-fi
-
-# Execute the native runtime directly so no Node CLI wrapper stays attached.
-ELECTRON_RUNTIME="$ELECTRON_PACKAGE_DIR/dist/$(<"$ELECTRON_PATH_FILE")"
-exec "$ELECTRON_RUNTIME" "$PROJECT_ROOT"

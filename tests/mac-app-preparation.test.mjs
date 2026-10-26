@@ -15,7 +15,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import test from 'node:test'
 
 const projectRoot = path.resolve(import.meta.dirname, '..')
-const launcherScript = path.join(projectRoot, 'scripts', 'launch-mac-v3-preview.sh')
+const launcherScript = path.join(projectRoot, 'scripts', 'prepare-mac-app.sh')
 test('the macOS 3.0 preview launcher resolves the project-local Electron runtime in dry-run mode', {
   skip: process.platform !== 'darwin',
 }, () => {
@@ -35,7 +35,7 @@ test('the macOS 3.0 preview launcher resolves the project-local Electron runtime
   })
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   assert.equal(result.status, 0, output)
-  assert.match(output, /Media Dock 3 Preview launcher is ready\./u)
+  assert.match(output, /Media Dock preparation is ready\./u)
   assert.match(output, new RegExp(projectRoot.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'))
   assert.match(output, /node_modules[/\\]\.bin[/\\]electron/u)
 })
@@ -46,7 +46,7 @@ test('the macOS 3.0 preview launcher rejects an incomplete Electron runtime befo
   const fixtureRoot = mkdtempSync(path.join(os.tmpdir(), 'media-dock-launcher-'))
   t.after(() => rmSync(fixtureRoot, { recursive: true, force: true }))
 
-  const fixtureLauncher = path.join(fixtureRoot, 'scripts', 'launch-mac-v3-preview.sh')
+  const fixtureLauncher = path.join(fixtureRoot, 'scripts', 'prepare-mac-app.sh')
   const electronShim = path.join(fixtureRoot, 'node_modules', '.bin', 'electron')
   mkdirSync(path.dirname(fixtureLauncher), { recursive: true })
   mkdirSync(path.dirname(electronShim), { recursive: true })
@@ -81,7 +81,7 @@ test('the macOS 3.0 preview launcher rejects an incomplete Electron runtime befo
   assert.notEqual(result.status, 0, output)
   assert.match(output, /Electron runtime is incomplete/u)
   assert.match(output, /npm rebuild electron/u)
-  assert.doesNotMatch(output, /Media Dock 3 Preview launcher is ready\./u)
+  assert.doesNotMatch(output, /Media Dock preparation is ready\./u)
 })
 
 function createLauncherFixture(t, { dependenciesPresent = false } = {}) {
@@ -89,7 +89,7 @@ function createLauncherFixture(t, { dependenciesPresent = false } = {}) {
   t.after(() => rmSync(root, { recursive: true, force: true }))
   mkdirSync(path.join(root, 'scripts'))
   mkdirSync(path.join(root, 'bin'))
-  copyFileSync(launcherScript, path.join(root, 'scripts', 'launch-mac-v3-preview.sh'))
+  copyFileSync(launcherScript, path.join(root, 'scripts', 'prepare-mac-app.sh'))
   writeFileSync(path.join(root, 'package.json'), '{}\n')
   writeFileSync(path.join(root, 'package-lock.json'), '{}\n')
   const writeDependencies = () => {
@@ -123,7 +123,7 @@ fi
   return {
     root,
     run: (env = {}) => {
-      const result = spawnSync('/bin/zsh', [path.join(root, 'scripts', 'launch-mac-v3-preview.sh')], {
+      const result = spawnSync('/bin/zsh', [path.join(root, 'scripts', 'prepare-mac-app.sh')], {
         cwd: '/',
         encoding: 'utf8',
         timeout: 10_000,
@@ -142,12 +142,12 @@ fi
   }
 }
 
-test('a clean macOS checkout restores locked development dependencies then builds and launches', { skip: process.platform !== 'darwin' }, (t) => {
+test('a clean macOS checkout restores locked development dependencies and prepares the app', { skip: process.platform !== 'darwin' }, (t) => {
   const fixture = createLauncherFixture(t)
   const result = fixture.run({ NODE_ENV: 'production' })
   assert.equal(result.status, 0, result.output)
   assert.equal(result.calls, 'ci --include=dev --no-audit --no-fund\nrun build\n')
-  assert.match(result.output, /fixture Electron started/)
+  assert.doesNotMatch(result.output, /fixture Electron started/)
   assert.equal(readFileSync(path.join(fixture.root, 'package-lock.json'), 'utf8'), '{}\n')
   const relaunch = fixture.run()
   assert.equal(relaunch.status, 0, relaunch.output)
@@ -158,16 +158,7 @@ test('an incomplete Electron installation repairs the runtime before launching',
   const result = createLauncherFixture(t, { dependenciesPresent: true }).run()
   assert.equal(result.status, 0, result.output)
   assert.equal(result.calls, 'rebuild electron --foreground-scripts\nrun build\n')
-  assert.match(result.output, /fixture Electron started/)
-})
-
-test('native launcher preparation finishes without starting a runtime or leaving a wrapper', (t) => {
-  const fixture = createLauncherFixture(t)
-  const result = fixture.run({ MEDIA_DOCK_PREPARE_ONLY: '1' })
-  assert.equal(result.status, 0, result.output)
-  assert.match(result.output, /launcher is ready/)
   assert.doesNotMatch(result.output, /fixture Electron started/)
-  assert.equal(result.calls, 'ci --include=dev --no-audit --no-fund\nrun build\n')
 })
 
 test('launcher dry-run reports missing dependencies without installing or building', { skip: process.platform !== 'darwin' }, (t) => {
@@ -209,6 +200,6 @@ for (const failingStep of ['ci', 'rebuild', 'run']) {
     const result = createLauncherFixture(t, { dependenciesPresent: failingStep === 'rebuild' }).run({ FIXTURE_NPM_FAIL: failingStep })
     assert.equal(result.status, 1, result.output)
     assert.match(result.output, /失败/)
-    assert.doesNotMatch(result.output, /fixture Electron started|launcher is ready/)
+    assert.doesNotMatch(result.output, /fixture Electron started|preparation is ready/)
   })
 }

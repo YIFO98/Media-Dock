@@ -16,7 +16,7 @@ if (!output.endsWith('.app')) throw new Error('The launcher output must be an .a
 const owner = 'media-dock-source-launcher-v1\n'
 const ownerFile = path.join(output, 'Contents/Resources/launcher-owner.txt')
 if (existsSync(output) && (!existsSync(ownerFile) || readFileSync(ownerFile, 'utf8') !== owner)) throw new Error('The output already exists and is not a generated Media Dock source launcher.')
-if (!existsSync(path.join(project, 'scripts/launch-mac-v3-preview.sh'))) throw new Error('The selected project has no source launcher script.')
+if (!existsSync(path.join(project, 'scripts/prepare-mac-app.sh'))) throw new Error('The selected project has no source launcher script.')
 const version = JSON.parse(readFileSync(path.join(repository, 'package.json'), 'utf8')).version.split('-')[0]
 const temporary = mkdtempSync(path.join(tmpdir(), 'media-dock-native-launcher-'))
 mkdirSync(path.dirname(output), { recursive: true })

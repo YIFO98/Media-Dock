@@ -4,7 +4,7 @@ Media Dock 3 is maintained for macOS only (Apple Silicon and Intel). Product-ver
 
 ## Package shape
 
-- macOS: `Media-Dock-<version>-<arch>-mac.zip`; open the root `Launch Media Dock.command`. The unchanged app bundle stays at `core/Media Dock.app`.
+- macOS: `Media-Dock-<version>-<arch>-mac.zip`; open the sole root `Media Dock.app`. No command wrapper or second app entry is included.
 - Portable state lives in the sibling `Media Dock Data/` directory. A real write probe runs before the UI starts.
 - `yt-dlp`, Deno, FFmpeg, FFprobe, and required shared libraries are bundled under application resources.
 - No package is manually reconstructed after executable editing, signing, or notarization.

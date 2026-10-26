@@ -176,28 +176,13 @@ if [[ -z "$PACKAGED_APP" ]]; then
   echo "Media Dock.app was not found in the electron-builder ZIP."
   exit 1
 fi
-mkdir -p "$PORTABLE_STAGE/core"
-ditto "$PACKAGED_APP" "$PORTABLE_STAGE/core/Media Dock.app"
-cat > "$PORTABLE_STAGE/Launch Media Dock.command" <<'COMMAND'
-#!/bin/zsh
-set -euo pipefail
-
-ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_BUNDLE="$ROOT_DIR/core/Media Dock.app"
-if [[ ! -x "$APP_BUNDLE/Contents/MacOS/Media Dock" ]]; then
-  echo "Media Dock runtime is missing from: $APP_BUNDLE"
-  exit 1
-fi
-export MEDIA_DOCK_PORTABLE_ROOT="${MEDIA_DOCK_PORTABLE_ROOT:-$ROOT_DIR}"
-exec "$APP_BUNDLE/Contents/MacOS/Media Dock"
-COMMAND
-chmod +x "$PORTABLE_STAGE/Launch Media Dock.command"
+ditto "$PACKAGED_APP" "$PORTABLE_STAGE/Media Dock.app"
 cat > "$PORTABLE_STAGE/README-macos.txt" <<README
 Media Dock for macOS
 Build type: $([[ "${MEDIA_DOCK_SIGNED_RELEASE:-0}" == "1" ]] && echo "Signed Release" || echo "Unsigned Developer Preview")
 
-Run "Launch Media Dock.command" after extracting the complete ZIP.
-The application runtime is kept inside "core/Media Dock.app".
+Open "Media Dock.app" after extracting the complete ZIP.
+This is the only application entry; no Terminal window is needed.
 Portable data is stored in the sibling "Media Dock Data" directory.
 README
 
@@ -214,7 +199,7 @@ if unzip -Z1 "$FINAL_MAC_ZIP" | grep -Eiq "$ZIP_PRIVACY_PATTERN"; then
 fi
 node "$SCRIPT_DIR/record-runtime-manifest.mjs" \
   --platform macos \
-  --runtime-dir "$PORTABLE_STAGE/core/Media Dock.app/Contents/Resources/tools" \
+  --runtime-dir "$PORTABLE_STAGE/Media Dock.app/Contents/Resources/tools" \
   --output "$VERSION_DIR/MACOS-RUNTIMES.json" \
   --source "yt-dlp=$YTDLP_URL" \
   --source "deno=$DENO_URL" \

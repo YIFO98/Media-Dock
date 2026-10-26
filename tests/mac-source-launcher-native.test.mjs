@@ -11,7 +11,7 @@ test('native source entry replaces itself with the runtime and exits without a t
   const project = path.join(root, '中文 项目')
   mkdirSync(path.join(project, 'scripts'), { recursive: true })
   mkdirSync(path.join(project, 'node_modules/electron/dist'), { recursive: true })
-  writeFileSync(path.join(project, 'scripts/launch-mac-v3-preview.sh'), '#!/bin/zsh\n[[ "$MEDIA_DOCK_PREPARE_ONLY" == "1" ]] || exit 12\nprint "preparation only"\n')
+  writeFileSync(path.join(project, 'scripts/prepare-mac-app.sh'), '#!/bin/zsh\nprint "preparation only"\n')
   writeFileSync(path.join(project, 'node_modules/electron/path.txt'), 'runtime\n')
   const runtime = path.join(project, 'node_modules/electron/dist/runtime')
   writeFileSync(runtime, `#!/bin/zsh
