@@ -42,7 +42,14 @@ app.on('browser-window-created', (_event, window) => {
       if (report.launches.length === 1) {
         report.userData = app.getPath('userData')
         await window.webContents.executeJavaScript("localStorage.setItem('restart-fixture', 'preserved')")
-        assert.deepEqual(await window.webContents.executeJavaScript("window.mediaDock.restartApplication('zh-CN')"), { status: 'cancelled' })
+        let restartResult
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          restartResult = await window.webContents.executeJavaScript("window.mediaDock.restartApplication('zh-CN')")
+          if (restartResult.status !== 'blocked') break
+          assert.equal(restartResult.reason, 'operation-active', 'Only the initial runtime health check may block this empty workspace')
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        assert.deepEqual(restartResult, { status: 'cancelled' })
         report.cancelVerified = true
         save()
         process.env.MEDIA_DOCK_EXIT_PROBE = '1'

@@ -12,7 +12,6 @@ import {
   getPortableDataDirectory,
 } from './core/portableData.js'
 import {
-  getRuntimeUpdateAvailability,
   inspectRuntimeExecutable,
   installValidatedRuntimeExecutable,
   verifyRuntimeFileIntegrity,
@@ -24,6 +23,7 @@ import {
   type RuntimeDownloadRequest,
 } from './core/runtimeDownloadSource.js'
 import { compareVersions, normalizeVersion } from './core/version.js'
+import { inspectManagedRuntimeHealth, isMacosStandaloneExecutable, runtimeUpdateAvailability, selectMacosYtDlpAsset } from './core/managedRuntimeHealth.js'
 import {
   downloadRuntimeFile,
   fetchRuntimeJson,
@@ -412,6 +412,8 @@ let v3TaskEngine: MediaTaskEngine | null = null
 let v3RuntimeRegistry: ManagedRuntimeRegistry | null = null
 let v3RuntimeRestartRequired = false
 let v3MaintenanceInFlight = 0
+const runtimeHealthChecks = new Set<Promise<unknown>>()
+const runtimeHealthAbort = new AbortController()
 let unregisterV3Ipc: (() => void) | null = null
 let portableDataRootDirectory: string | null = null
 let activeBatchRequest: DownloadRequest | null = null
@@ -1467,6 +1469,8 @@ async function resolveYoutubeCollection(sourceUrl: string, log?: CollectionLogge
   log?.(`YouTube 合集解析：list=${listId}`)
   log?.('正在调用 yt-dlp 读取合集目录，只解析列表，不下载视频。')
   const { stdout } = await runProcessCollectOutput(getYtDlpPath(), [
+    '--ignore-config',
+    '--no-update',
     '--flat-playlist',
     '--dump-single-json',
     '--skip-download',
@@ -1599,19 +1603,7 @@ async function downloadLatestUpdate(): Promise<UpdateDownloadResult> {
 }
 
 function selectYtDlpDownloadAsset(assets: NonNullable<GitHubReleasePayload['assets']>) {
-  const preferredName = 'yt-dlp'
-  const normalizedAssets = assets
-    .map((asset) => ({
-      name: asset.name ?? '',
-      url: asset.browser_download_url ?? '',
-      size: typeof asset.size === 'number' ? asset.size : null,
-      digest: asset.digest ?? null,
-    }))
-    .filter((asset) => asset.name && asset.url)
-
-  return normalizedAssets.find((asset) => asset.name === preferredName)
-    ?? normalizedAssets.find((asset) => asset.name.toLowerCase() === preferredName.toLowerCase())
-    ?? null
+  return selectMacosYtDlpAsset(assets)
 }
 
 async function fetchLatestYtDlpRelease() {
@@ -1633,7 +1625,7 @@ async function fetchLatestDenoRelease() {
 }
 
 async function probeYtDlpVersion(executablePath: string) {
-  const result = await runProcessCollectOutput(executablePath, ['--version'], 15000)
+  const result = await runProcessCollectOutput(executablePath, ['--ignore-config', '--version'], 15000)
   const versionLine = `${result.stdout}\n${result.stderr}`
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -1652,7 +1644,7 @@ function getYtDlpInspectionKey(executablePath: string | null) {
 }
 
 async function inspectCurrentYtDlp() {
-  const executablePath = resolveExecutablePath('yt-dlp')
+  const executablePath = getYtDlpPath()
   const key = getYtDlpInspectionKey(executablePath)
   if (ytDlpInspectionCache?.key === key) {
     return await ytDlpInspectionCache.promise
@@ -1699,7 +1691,7 @@ async function checkRuntimeToolUpdates(): Promise<RuntimeToolUpdateCheckResult> 
   ])
   const latestYtDlpVersion = ytDlpRelease.tag_name ? normalizeVersion(ytDlpRelease.tag_name) : null
   const latestDenoVersion = denoRelease.tag_name ? normalizeVersion(denoRelease.tag_name) : null
-  const ytDlpAvailability = getRuntimeUpdateAvailability(currentYtDlpVersion, latestYtDlpVersion)
+  const ytDlpAvailability = runtimeUpdateAvailability({ currentVersion: currentYtDlpVersion, repairRequired: !isMacosStandaloneExecutable(getYtDlpPath()) }, latestYtDlpVersion)
 
   return {
     ytDlp: {
@@ -1730,10 +1722,21 @@ async function getLatestManagedRuntimeReleases() {
   return Object.freeze({ ytDlpRelease, denoRelease })
 }
 
-function managedRuntimeUpdateSnapshot(
+function readManagedRuntimeHealth(registry: ManagedRuntimeRegistry) {
+  const operation = Promise.all([
+    inspectManagedRuntimeHealth('yt-dlp', registry.getActive('yt-dlp'), runtimeHealthAbort.signal),
+    inspectManagedRuntimeHealth('deno', registry.getActive('deno'), runtimeHealthAbort.signal),
+  ])
+  runtimeHealthChecks.add(operation)
+  void operation.finally(() => runtimeHealthChecks.delete(operation)).catch(() => undefined)
+  return operation
+}
+
+async function managedRuntimeUpdateSnapshot(
   registry: ManagedRuntimeRegistry,
   releases: Awaited<ReturnType<typeof getLatestManagedRuntimeReleases>>,
-): RuntimeToolUpdateCheckResult {
+): Promise<RuntimeToolUpdateCheckResult> {
+  const [ytDlpHealth, denoHealth] = await readManagedRuntimeHealth(registry)
   const currentYtDlp = registry.getActive('yt-dlp')
   const currentDeno = registry.getActive('deno')
   const latestYtDlpVersion = releases.ytDlpRelease.tag_name
@@ -1746,18 +1749,17 @@ function managedRuntimeUpdateSnapshot(
   return Object.freeze({
     ytDlp: Object.freeze({
       tool: 'yt-dlp',
-      currentVersion: currentYtDlp?.version ?? null,
+      currentVersion: ytDlpHealth.currentVersion,
       latestVersion: latestYtDlpVersion,
-      ...getRuntimeUpdateAvailability(currentYtDlp?.version ?? null, latestYtDlpVersion),
+      ...runtimeUpdateAvailability(ytDlpHealth, latestYtDlpVersion),
       releaseUrl: releases.ytDlpRelease.html_url ?? null,
       detail: currentYtDlp?.command ?? null,
     }),
     deno: Object.freeze({
       tool: 'deno',
-      currentVersion: currentDeno?.version ?? null,
+      currentVersion: denoHealth.currentVersion,
       latestVersion: latestDenoVersion,
-      updateAvailable: Boolean(latestDenoVersion && (!currentDeno || compareVersions(currentDeno.version, latestDenoVersion) < 0)),
-      repairRequired: false,
+      ...runtimeUpdateAvailability(denoHealth, latestDenoVersion),
       releaseUrl: releases.denoRelease.html_url ?? null,
       detail: currentDeno?.command ?? null,
     }),
@@ -1767,7 +1769,7 @@ function managedRuntimeUpdateSnapshot(
 async function checkV3ManagedRuntimeUpdates(): Promise<ManagedRuntimeUpdateResult> {
   if (!v3RuntimeRegistry) throw new Error('The managed runtime registry is not ready.')
   return Object.freeze({
-    ...managedRuntimeUpdateSnapshot(v3RuntimeRegistry, await getLatestManagedRuntimeReleases()),
+    ...await managedRuntimeUpdateSnapshot(v3RuntimeRegistry, await getLatestManagedRuntimeReleases()),
     restartRequired: v3RuntimeRestartRequired,
     defaultMirrorBaseUrl: DEFAULT_RUNTIME_MIRROR_BASE_URL,
   })
@@ -1799,7 +1801,10 @@ async function installV3ManagedYtDlp(
         })
       })
     },
-    probeVersion: probeYtDlpVersion,
+    probeVersion: async (candidatePath) => {
+      if (!isMacosStandaloneExecutable(candidatePath)) throw new Error('Expected the standalone macOS yt-dlp executable.')
+      return await probeYtDlpVersion(candidatePath)
+    },
     onStage: (stage) => {
       if (stage === 'staging') {
         emitRuntimeToolProgress({ tool: 'yt-dlp', stage: 'downloading', message: `正在下载 yt-dlp ${version}...`, percent: 0 })
@@ -1882,9 +1887,9 @@ async function updateV3ManagedRuntimeTools(
   }
   const registry = v3RuntimeRegistry
   const releases = await getLatestManagedRuntimeReleases()
-  const available = managedRuntimeUpdateSnapshot(registry, releases)
+  const available = await managedRuntimeUpdateSnapshot(registry, releases)
 
-  if (available.ytDlp.updateAvailable && available.ytDlp.latestVersion) {
+  if ((available.ytDlp.updateAvailable || available.ytDlp.repairRequired) && available.ytDlp.latestVersion) {
     await installV3ManagedYtDlp(
       registry,
       releases.ytDlpRelease,
@@ -1893,7 +1898,7 @@ async function updateV3ManagedRuntimeTools(
     )
     v3RuntimeRestartRequired = true
   }
-  if (available.deno.updateAvailable && available.deno.latestVersion) {
+  if ((available.deno.updateAvailable || available.deno.repairRequired) && available.deno.latestVersion) {
     await installV3ManagedDeno(
       registry,
       releases.denoRelease,
@@ -1903,7 +1908,7 @@ async function updateV3ManagedRuntimeTools(
     v3RuntimeRestartRequired = true
   }
   return Object.freeze({
-    ...managedRuntimeUpdateSnapshot(registry, releases),
+    ...await managedRuntimeUpdateSnapshot(registry, releases),
     restartRequired: v3RuntimeRestartRequired,
     defaultMirrorBaseUrl: DEFAULT_RUNTIME_MIRROR_BASE_URL,
   })
@@ -1936,7 +1941,10 @@ async function installYtDlpRuntime(): Promise<RuntimeToolInstallResult> {
         percent,
       })
     }),
-    probeVersion: probeYtDlpVersion,
+    probeVersion: async (candidatePath) => {
+      if (!isMacosStandaloneExecutable(candidatePath)) throw new Error('Expected the standalone macOS yt-dlp executable.')
+      return await probeYtDlpVersion(candidatePath)
+    },
     onStage: (stage) => {
       if (stage === 'downloading') {
         emitRuntimeToolProgress({ tool: 'yt-dlp', stage, message: `正在下载 yt-dlp ${latestVersion}...`, percent: 0 })
@@ -2591,7 +2599,7 @@ function resolveDialogStartDirectory(inputPath?: string) {
 }
 
 function getYtDlpPath() {
-  return resolveExecutablePath('yt-dlp') ?? 'yt-dlp'
+  return v3RuntimeRegistry?.getActive('yt-dlp')?.command ?? resolveExecutablePath('yt-dlp') ?? 'yt-dlp'
 }
 
 function getFfmpegPath() {
@@ -2727,7 +2735,7 @@ function getHostWindow(webContentsId?: Electron.WebContents) {
 }
 
 function getDenoPath() {
-  return resolveExecutablePath('deno')
+  return v3RuntimeRegistry?.getActive('deno')?.command ?? resolveExecutablePath('deno')
     ?? (shouldAllowSystemToolFallback() ? denoCandidates.find((candidate) => existsSync(candidate)) ?? null : null)
 }
 
@@ -4380,7 +4388,7 @@ async function initializeV3TaskEngine() {
   const [ffmpegVersion, ffprobeVersion, ytDlpVersion, denoVersion] = await Promise.all([
     trackStartupRuntimeProbe('FFmpeg', probeMediaRuntimeVersion(ffmpegCommand)),
     trackStartupRuntimeProbe('FFprobe', probeMediaRuntimeVersion(ffprobeCommand)),
-    trackStartupRuntimeProbe('yt-dlp', probeMediaRuntimeVersion(ytDlpCommand, ['--version'])),
+    trackStartupRuntimeProbe('yt-dlp', probeMediaRuntimeVersion(ytDlpCommand, ['--ignore-config', '--version'])),
     trackStartupRuntimeProbe('Deno', denoCommand ? getCurrentDenoVersion() : Promise.resolve(null)),
   ])
 
@@ -4492,11 +4500,17 @@ async function initializeV3TaskEngine() {
       },
       async getRuntimeStatus() {
         if (!v3RuntimeRegistry) throw new Error('The managed runtime registry is not ready.')
-        return {
-          ytDlpVersion: v3RuntimeRegistry.getActive('yt-dlp')?.version ?? null,
-          denoVersion: v3RuntimeRegistry.getActive('deno')?.version ?? null,
-          restartRequired: v3RuntimeRestartRequired,
-        }
+        const registry = v3RuntimeRegistry
+        return await withV3MaintenanceOperation(async () => {
+          const [ytDlpHealth, denoHealth] = await readManagedRuntimeHealth(registry)
+          return {
+            ytDlpVersion: ytDlpHealth.currentVersion,
+            denoVersion: denoHealth.currentVersion,
+            ytDlpRepairRequired: ytDlpHealth.repairRequired,
+            denoRepairRequired: denoHealth.repairRequired,
+            restartRequired: v3RuntimeRestartRequired,
+          }
+        })
       },
       async restartApplication(language) {
         return await restartApplication(language)
@@ -4645,6 +4659,8 @@ async function shutdownApplicationWork() {
 
     unregisterV3Ipc?.()
     unregisterV3Ipc = null
+    runtimeHealthAbort.abort()
+    await Promise.allSettled([...runtimeHealthChecks])
     await v3TaskEngine?.shutdown()
     v3TaskEngine = null
     v3RuntimeRegistry = null

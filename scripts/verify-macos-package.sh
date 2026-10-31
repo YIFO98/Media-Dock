@@ -83,7 +83,7 @@ if (JSON.stringify(actual) !== JSON.stringify(manifest.files)) {
 NODE
 
 RUNTIME_BIN="$TOOLS_ROOT/bin"
-"$RUNTIME_BIN/yt-dlp" --version
+"$RUNTIME_BIN/yt-dlp" --ignore-config --version
 "$RUNTIME_BIN/deno" --version
 DYLD_LIBRARY_PATH="$TOOLS_ROOT/lib" "$RUNTIME_BIN/ffmpeg" -version | head -n 1
 DYLD_LIBRARY_PATH="$TOOLS_ROOT/lib" "$RUNTIME_BIN/ffprobe" -version | head -n 1

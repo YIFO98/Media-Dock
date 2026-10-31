@@ -27,7 +27,7 @@ function assertRendererAction(action) {
   assert.match(output, /\[GREEN\]/)
 }
 
-for (const action of ['v3SettingsRefresh', 'v3RestartActions', 'v3RestartBusy', 'v3RuntimePartialFailure']) {
+for (const action of ['v3SettingsRefresh', 'v3RestartActions', 'v3RestartBusy', 'v3RuntimePartialFailure', 'v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem', 'v3CookiePreflightExpired']) {
   test(`3.0 Settings ${action} stays recoverable and protects active Media Tasks`, () => {
     assertRendererAction(action)
   })

@@ -40,9 +40,9 @@ esac
 
 if [[ -z "${YTDLP_URL:-}" ]]; then
   if [[ -n "$YTDLP_VERSION" ]]; then
-    YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/download/$YTDLP_VERSION/yt-dlp"
+    YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/download/$YTDLP_VERSION/yt-dlp_macos"
   else
-    YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+    YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
   fi
 fi
 DENO_URL="${DENO_URL:-https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/${DENO_ARCHIVE_NAME}}"
@@ -78,6 +78,7 @@ rm -f "$VERSION_DIR"/Media-Dock-"$APP_VERSION"*-mac.zip(N) "$VERSION_DIR/MACOS-R
 
 download_file "$YTDLP_URL" "$TOOLS_BIN_DIR/yt-dlp"
 chmod +x "$TOOLS_BIN_DIR/yt-dlp"
+file "$TOOLS_BIN_DIR/yt-dlp" | grep -q 'Mach-O' || { echo "Expected the standalone macOS yt-dlp asset."; exit 1; }
 
 TMP_DENO_DIR="$(mktemp -d)"
 download_file "$DENO_URL" "$TMP_DENO_DIR/$DENO_ARCHIVE_NAME"

@@ -9,6 +9,7 @@ import { runRuntimeProcessCollectOutput } from '../core/runtimeProcess.js'
 import { withIsolatedCookieFile } from '../core/isolatedCookieFile.js'
 import type { NetworkAuthenticationVerifier } from './bilibiliAuthentication.js'
 import { assertAuthenticatedMediaAvailable, authenticationProblemFromEvidence } from './authenticationProblems.js'
+import { assertRuntimeAvailable, runtimeProblemFromEvidence } from './runtimeProblems.js'
 import {
   authenticationServiceMatches,
   copyAuthenticationPackage,
@@ -136,12 +137,12 @@ export type ReadySourceInspection = Readonly<{
 
 export type ProblemAction = Readonly<{
   id: string
-  kind: 'choose-source' | 'retry-task' | 'update-authentication'
+  kind: 'choose-source' | 'retry-task' | 'update-authentication' | 'repair-runtime'
 }>
 
 export type ProblemSnapshot = Readonly<{
   code: string
-  category: 'source' | 'authentication' | 'network' | 'media-processing'
+  category: 'source' | 'authentication' | 'network' | 'media-processing' | 'runtime'
   stage: 'preparing' | 'acquiring' | 'processing' | 'delivering'
   titleKey: string
   summaryKey: string
@@ -621,7 +622,7 @@ function taskExecutionProblem(
   acquisition: AcquisitionSnapshot | null = null,
 ): ProblemSnapshot {
   const isNetworkTask = task.plan.source.kind === 'network-url'
-  const authenticationProblem = isNetworkTask ? authenticationProblemFromEvidence(error, 'acquiring') : null
+  const authenticationProblem = isNetworkTask ? runtimeProblemFromEvidence(error, 'acquiring') ?? authenticationProblemFromEvidence(error, 'acquiring') : null
   if (authenticationProblem) return authenticationProblem
   if (isNetworkTask && hasTlsInterruptionEvidence(error)) {
     return Object.freeze({
@@ -1557,6 +1558,7 @@ export function createMediaTaskEngine(options: CreateMediaTaskEngineOptions): Me
                 signal: shutdownController.signal,
                 onOutputLine: handleYtDlpOutputLine,
               })
+              assertRuntimeAvailable(result.stderr)
               assertAuthenticatedMediaAvailable(result.stderr)
             })
           }

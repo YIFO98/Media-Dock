@@ -4,6 +4,7 @@ import { runRuntimeProcessCollectOutput } from '../core/runtimeProcess.js'
 import { withIsolatedCookieFile } from '../core/isolatedCookieFile.js'
 import type { NetworkAuthenticationVerifier } from './bilibiliAuthentication.js'
 import { assertAuthenticatedMediaAvailable, authenticationProblemFromEvidence } from './authenticationProblems.js'
+import { assertRuntimeAvailable, runtimeProblemFromEvidence } from './runtimeProblems.js'
 
 import type {
   DeliverableRecipeOption,
@@ -118,9 +119,11 @@ async function readNetworkMetadataOutput(
       env: process.env,
       signal: options.signal,
     }).catch((error: unknown) => {
+      assertRuntimeAvailable(error)
       assertAuthenticatedMediaAvailable(error)
       throw error
     })
+    assertRuntimeAvailable(result.stderr)
     assertAuthenticatedMediaAvailable(result.stderr)
     return result.stdout.trim()
   })
@@ -189,7 +192,7 @@ export async function inspectNetworkMediaSourceWithQualities(
   try {
     metadataOutput = await readNetworkMetadataOutput(sourceUrl, ytDlp, options, 45_000)
   } catch (error) {
-    const authenticationProblem = authenticationProblemFromEvidence(error)
+    const authenticationProblem = runtimeProblemFromEvidence(error) ?? authenticationProblemFromEvidence(error)
     return Object.freeze({
       inspection: authenticationProblem ? Object.freeze({ status: 'needs-attention' as const, problem: authenticationProblem }) : networkSourceProblem(
         'source.network.inspect-failed',

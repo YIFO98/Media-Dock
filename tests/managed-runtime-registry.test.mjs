@@ -84,6 +84,26 @@ test('a verified managed runtime activates from a version directory without chan
   })
 })
 
+test('same-version runtime repair creates a separate verified installation and keeps rollback intact', async () => {
+  await withRuntimeWorkspace(async (rootDirectory) => {
+    const registry = createManagedRuntimeRegistry({ rootDirectory })
+    const firstPayload = runtimePayload('2026.10.26')
+    const repairPayload = Buffer.concat([firstPayload, Buffer.from('// repaired distribution\n')])
+    const install = (payload) => registry.installAndActivate({
+      tool: 'yt-dlp', version: '2026.10.26', executableName: 'yt-dlp.cjs',
+      expectedSize: payload.length, expectedSha256: sha256(payload),
+      populateCandidate: async (candidate) => writeFileSync(candidate, payload), probeVersion: probeNodeFixture,
+    })
+    const original = await install(firstPayload)
+    const repaired = await install(repairPayload)
+    assert.notEqual(repaired.command, original.command)
+    assert.deepEqual(readFileSync(original.command), firstPayload)
+    assert.deepEqual(readFileSync(repaired.command), repairPayload)
+    assert.equal(registry.getActive('yt-dlp').command, repaired.command)
+    assert.equal(registry.rollback('yt-dlp').command, original.command)
+  })
+})
+
 test('a failed managed runtime candidate leaves the active manifest and version untouched', async () => {
   await withRuntimeWorkspace(async (rootDirectory) => {
     const baselinePath = path.join(rootDirectory, 'bundled-yt-dlp.cjs')

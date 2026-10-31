@@ -1,7 +1,7 @@
 {
   "name": "media-dock",
   "private": true,
-  "version": "3.0.4-preview.6",
+  "version": "3.0.4-preview.7",
   "type": "module",
   "main": "dist-electron/main.js",
   "description": "A compact local media download and processing desktop app.",

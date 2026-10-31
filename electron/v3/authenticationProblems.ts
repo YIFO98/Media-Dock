@@ -39,6 +39,9 @@ export function assertAuthenticatedMediaAvailable(evidence: unknown): void {
   if (problem) {
     // IPC preserves the message, so include a stable code without raw tool
     // output, private URLs, file paths, or Cookie values.
-    throw new Error(`[${problem.code}] 请确认浏览器能播放完整视频，并重新导入 MediaCookies。Check full-video access and refresh MediaCookies.`)
+    const guidance = problem.category === 'network'
+      ? '暂时无法验证登录状态，请检查网络后重试。Sign-in verification is unavailable; retry later.'
+      : '请确认浏览器能播放完整视频，并重新导入 MediaCookies。Check full-video access and refresh MediaCookies.'
+    throw new Error(`[${problem.code}] ${guidance}`)
   }
 }

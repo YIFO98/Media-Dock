@@ -137,6 +137,8 @@ export type RuntimeUpdateSnapshot = Readonly<{
 export type RuntimeStatusSnapshot = Readonly<{
   ytDlpVersion: string | null
   denoVersion: string | null
+  ytDlpRepairRequired: boolean
+  denoRepairRequired: boolean
   restartRequired: boolean
 }>
 

@@ -231,7 +231,9 @@ export function createManagedRuntimeRegistry(options: CreateManagedRuntimeRegist
 
     const operationId = options.idFactory?.() ?? randomUUID()
     const executableName = requireExecutableName(input.executableName)
-    const versionDirectoryName = safeVersionDirectoryName(input.version)
+    // Repairs can replace a broken artifact without changing its release version.
+    // Keep every installation immutable so pinned work and rollback retain the old file.
+    const versionDirectoryName = `${safeVersionDirectoryName(input.version)}-${randomUUID()}`
     const candidateDirectory = path.join(stagingDirectory, `${input.tool}-${operationId}`)
     const candidatePath = path.join(candidateDirectory, executableName)
     const targetDirectory = path.join(versionsDirectory, input.tool, versionDirectoryName)

@@ -501,8 +501,8 @@ app.whenReady().then(async () => {
       const explained = await waitFor(
         win,
         `Boolean(document.querySelector('.md3-task-problem'))
-          && document.querySelector('.md3-task-problem')?.innerText.includes('网站登录信息已失效')
-          && document.querySelector('.md3-task-problem')?.innerText.includes('重新导出并导入')
+          && document.querySelector('.md3-task-problem')?.innerText.includes('Cookies 已过期或失效')
+          && document.querySelector('.md3-task-problem')?.innerText.includes('导出新的 ZIP')
           && Array.from(document.querySelectorAll('.md3-task-problem button')).some((button) => button.textContent.trim() === '更新 Cookies')`,
       )
       if (!explained) throw new Error('Expired Cookie Problem did not show localized recovery guidance')
@@ -603,6 +603,47 @@ app.whenReady().then(async () => {
       const exported = await waitFor(win, `document.querySelector('.md3-task-list')?.innerText.includes('任务日志已保存')`)
       if (!exported) throw new Error('The selected task diagnostic log was not exported')
       console.log('[GREEN] Media Dock 3 exports a privacy-safe diagnostic log for one needs-attention task.')
+      app.exit(0)
+      return
+    }
+    if (['v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem', 'v3CookiePreflightExpired'].includes(action)) {
+      const cookieCase = action === 'v3CookiePreflightExpired'
+      if (action === 'v3RuntimeSourceProblem') {
+        await waitFor(win, `document.querySelector('.md3-link-mode button:nth-child(2)')`)
+        await win.webContents.executeJavaScript(`document.querySelector('.md3-link-mode button:nth-child(2)').click()`, true)
+      }
+      const click = async (selector) => {
+        if (!await waitFor(win, `document.querySelector(${JSON.stringify(selector)}) && !document.querySelector(${JSON.stringify(selector)}).disabled`)) throw new Error(`Action unavailable: ${selector}`)
+        await win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`, true)
+      }
+      await waitFor(win, `document.querySelector('.md3-source-field input')`)
+      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('.md3-source-field input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'https://media.example/watch?v=preflight'); input.dispatchEvent(new Event('input', { bubbles: true })); window.fixtureMount = 'same-preflight'; })()`, true)
+      await click('.md3-primary-action')
+      if (!['v3RuntimeEnvironmentProblem', 'v3RuntimeSourceProblem'].includes(action)) {
+        if (!await waitFor(win, `document.querySelector('.md3-primary-action')?.textContent.includes('开始处理') && !document.querySelector('.md3-primary-action').disabled`)) throw new Error('Initial plan was not ready')
+        await click('.md3-primary-action')
+      }
+      const title = cookieCase ? 'Cookies 已过期或失效' : '下载内核与运行环境不兼容'
+      const button = cookieCase ? '更新 Cookies' : '修复下载工具'
+      if (!await waitFor(win, `document.querySelector('.md3-problem')?.textContent.includes(${JSON.stringify(title)}) && document.querySelector('.md3-problem button')?.textContent === ${JSON.stringify(button)} && document.querySelector('.md3-primary-action').disabled && !document.querySelector('.md3-error') && !document.querySelector('.md3-preflight-result.is-problem')`)) throw new Error('Preflight did not identify the actual cause and recovery action')
+      if (screenshotPath) {
+        await win.webContents.executeJavaScript(`document.querySelector('.md3-problem').scrollIntoView({ block: 'center' })`, true)
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        fs.mkdirSync(path.dirname(screenshotPath), { recursive: true })
+        fs.writeFileSync(screenshotPath, (await win.webContents.capturePage()).toPNG())
+      }
+      await click('.md3-problem button')
+      if (cookieCase) {
+        await click('.md3-authentication-actions button')
+        if (!await waitFor(win, `document.querySelector('.md3-authentication-success')?.textContent.includes('无需重启应用')`)) throw new Error('Cookie replacement was not applied immediately')
+        await click('.md3-authentication-success button')
+        if (!await waitFor(win, `!document.querySelector('.md3-problem') && !document.querySelector('.md3-primary-action').disabled && window.fixtureMount === 'same-preflight'`)) throw new Error('Updating Cookies did not recover the original plan')
+      } else {
+        if (!await waitFor(win, `document.querySelector('.md3-runtime-results')?.textContent.includes('即使版本最新也需要修复') && Array.from(document.querySelectorAll('.md3-runtime-actions button')).some((button) => button.textContent === '官方修复' && !button.disabled)`)) throw new Error('A current but broken runtime did not offer repair')
+        await click('.md3-runtime-actions button.is-primary:not(.md3-restart)')
+        if (!await waitFor(win, `document.querySelector('.md3-runtime-results')?.textContent.includes('2026.10.26') && document.querySelector('.md3-runtime-results')?.textContent.includes('重启 Media Dock 后生效') && !document.querySelector('.md3-runtime-results')?.textContent.includes('需要修复')`)) throw new Error('Same-version runtime repair did not clear the health failure')
+      }
+      console.log('[GREEN] Runtime incompatibility and Cookie expiry expose distinct recovery actions and allow repair at the same version.')
       app.exit(0)
       return
     }

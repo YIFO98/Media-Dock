@@ -15,7 +15,7 @@ Media Dock · 泊是器度 QIDU 旗下的本地优先媒体获取、音画合并
 
 | 版本线 | 状态 | 适合谁 |
 | --- | --- | --- |
-| 3.0.4-preview.6 | 当前源码维护候选，仅 macOS | 需要原生启动、刷新、重启与 Cookie 修复的用户 |
+| 3.0.4-preview.7 | 当前源码维护候选，仅 macOS | 需要原生启动、刷新、重启与 Cookie 修复的用户 |
 | 3.0.2 | 既有稳定发布 | 使用 3.0 工作台、任务模型与独立数据目录的用户 |
 | [3.0.3](https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.3) | 已发布的兼容性预览 | 测试 YouTube 403 恢复与网络中断提示的用户 |
 | [2.1.2](https://github.com/Yifo98/Media-Dock/releases/tag/v2.1.2) | 旧版维护线 | 需要旧界面和旧数据布局的用户 |
@@ -46,14 +46,14 @@ Media Dock 3 使用独立的 `Media Dock Data/v3/` 数据边界，不会改写 2
 - **音画合并**：一次多选音频与视频，按媒体流、时长和时间轴配对，不依赖相似文件名。
 - **任务中心**：显示获取、处理、交付进度，完成后可直接打开所在位置。
 - **安全清理**：清理任务历史和临时缓存不会删除已经交付到保存位置的媒体。
-- **设置刷新与重启**：内核及登录信息可刷新本地状态；内核更新后可在应用内确认重启，有任务或更新进行时会阻止重启。
+- **设置刷新与修复**：同时检查内核版本与可运行状态，版本最新但不可运行时仍可修复。macOS 独立内核自带 Python，随内核一起更新，不改系统 Python；修复后可在应用内确认重启。
 - **诊断与支持**：导出经过脱敏的 TXT，保留系统、运行工具和问题证据，但排除 Cookie、凭证、完整链接参数、用户目录和媒体路径。
 
 ## 下载与运行
 
 前往 [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases)：
 
-- 已有发布包请选择对应架构的 **macOS** 资产；本次 `3.0.4-preview.6` 更新通过源码启动器使用，尚未发布新安装包。
+- 已有发布包请选择对应架构的 **macOS** 资产；本次 `3.0.4-preview.7` 更新通过源码启动器使用，尚未发布新安装包。
 - 当前源码与未来分享包统一只使用 **`Media Dock.app`**。旧版已发布包请按对应版本的说明运行。
 
 标准分享包由 `electron-builder` 生成，并在启动入口同级的 `Media Dock Data/` 保存任务数据、工具和缓存。带 `Unsigned` 标记的资产只供可接受系统安全提示的测试者；它不是已经取得平台信任的签名包。
@@ -71,7 +71,7 @@ Media Dock 3 使用独立的 `Media Dock Data/v3/` 数据边界，不会改写 2
 
 MediaCookies 不读取密码，也不会把 Cookie 上传到网络。
 
-当前 3.0.4 本地维护候选中，明确的 Cookie 失效或试看限制会提示更新登录资料，试看片段不会作为完整成品交付。更新 MediaCookies 后，画质与未开始的任务计划会自动刷新，无需重启应用；账号仍需拥有视频的完整观看权限。
+当前 3.0.4 维护候选区分运行工具不兼容、Cookie 失效和网络验证故障，并提供对应的修复、更新 Cookies 或重试入口。明确的 Cookie 失效或试看限制会提示更新登录资料，试看片段不会作为完整成品交付。更新 MediaCookies 后，画质与未开始的任务计划会自动刷新，无需重启应用；账号仍需拥有视频的完整观看权限。
 
 ## 本地开发
 
@@ -120,7 +120,7 @@ Media Dock · 泊 is a QIDU local-first desktop workspace for acquiring public m
 
 | Channel | Status | Audience |
 | --- | --- | --- |
-| 3.0.4-preview.6 | Current source preview, macOS only | Users testing native launch, settings refresh, restart and Cookie fixes |
+| 3.0.4-preview.7 | Current source preview, macOS only | Users testing native launch, settings refresh, restart and Cookie fixes |
 | 3.0.2 | Existing stable release | Users adopting the workspace, task model, and isolated 3.0 data boundary |
 | [3.0.3](https://github.com/Yifo98/Media-Dock/releases/tag/v3.0.3) | Published compatibility preview | Users testing YouTube 403 recovery and network interruption guidance |
 | [2.1.2](https://github.com/Yifo98/Media-Dock/releases/tag/v2.1.2) | Legacy maintenance line | Users who still need the previous UI and data layout |
@@ -142,7 +142,7 @@ Watch the [16-second bilingual feature demo](docs/showcase/3.0.0/Media-Dock-3.0.
 
 ### Install
 
-Choose the macOS asset for your architecture from [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases). The `3.0.4-preview.6` changes are available through the source launcher; no new binary package has been published.
+Choose the macOS asset for your architecture from [GitHub Releases](https://github.com/Yifo98/Media-Dock/releases). The `3.0.4-preview.7` changes are available through the source launcher; no new binary package has been published.
 
 - Current source and future portable packages use **`Media Dock.app`** as the only entry. Follow the version-specific instructions for older published archives.
 

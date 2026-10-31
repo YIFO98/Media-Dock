@@ -97,13 +97,14 @@ function taskStateLabel(task: MediaTaskSnapshot, language: Language) {
   return copy.state[task.state]
 }
 
-function authenticationProblemCode(error: unknown): string | null {
+function knownProblemCode(error: unknown): string | null {
   const message = error instanceof Error ? error.message : String(error)
-  return message.match(/network\.authentication-check-unavailable|authentication\.(?:cookies-expired|preview-only|login-required)/u)?.[0] ?? null
+  return message.match(/runtime\.yt-dlp-python-unsupported|network\.authentication-check-unavailable|authentication\.(?:cookies-expired|preview-only|login-required)/u)?.[0] ?? null
 }
 
-function authenticationProblemCopy(code: string | null | undefined, language: Language) {
+function knownProblemCopy(code: string | null | undefined, language: Language) {
   const copy = messages[language]
+  if (code === 'runtime.yt-dlp-python-unsupported') return copy.runtimePythonUnsupported
   if (code === 'network.authentication-check-unavailable') return copy.authenticationCheckUnavailable
   if (code === 'authentication.cookies-expired') return copy.authenticationCookiesExpired
   if (code === 'authentication.preview-only') return copy.authenticationPreviewOnly
@@ -132,7 +133,7 @@ export default function MediaDockV3App() {
   const [preflightProblem, setPreflightProblem] = useState<string | null>(null)
   const [qualityLoading, setQualityLoading] = useState(false)
   const [qualityUnavailable, setQualityUnavailable] = useState(false)
-  const [authenticationProblem, setAuthenticationProblem] = useState<string | null>(null)
+  const [knownProblem, setKnownProblem] = useState<string | null>(null)
   const [preflightLoading, setPreflightLoading] = useState(false)
   const [concurrentTasks, setConcurrentTasks] = useState<1 | 2 | 3>(2)
   const [outputDirectory, setOutputDirectory] = useState('')
@@ -177,13 +178,16 @@ export default function MediaDockV3App() {
   const restartBlocked = runtimeBusy || busy || mergeBusy || authenticationRefreshing || qualityLoading || planLoading || mergePlanLoading || inspectionStartedAt !== null
     || workspace.tasks.some((task) => task.state === 'queued' || task.state === 'running')
   const inspectionRunning = inspectionStartedAt !== null
-  const visibleAuthenticationProblemCode = authenticationProblem ?? (inspection?.status === 'needs-attention' ? inspection.problem.code : null)
-  const visibleAuthenticationProblem = authenticationProblemCopy(visibleAuthenticationProblemCode, language)
+  const visibleKnownProblemCode = knownProblem ?? (inspection?.status === 'needs-attention' ? inspection.problem.code : null)
+  const visibleKnownProblem = knownProblemCopy(visibleKnownProblemCode, language)
   const runtimeUpdateAvailable = Boolean(
     runtimeUpdates?.ytDlp.updateAvailable
     || runtimeUpdates?.ytDlp.repairRequired
-    || runtimeUpdates?.deno.updateAvailable,
+    || runtimeUpdates?.deno.updateAvailable
+    || runtimeUpdates?.deno.repairRequired,
   )
+
+  const runtimeNeedsRepair = Boolean(runtimeStatus?.ytDlpRepairRequired || runtimeStatus?.denoRepairRequired)
 
   useEffect(() => {
     document.documentElement.dataset.product = 'v3'
@@ -326,7 +330,7 @@ export default function MediaDockV3App() {
     setDownloadPreflight(null)
     setPreflightProblem(null)
     setQualityUnavailable(false)
-    setAuthenticationProblem(null)
+    setKnownProblem(null)
     setQualityLoading(true)
     void api.inspectVideoQualities(qualityProbeSource)
       .then((result) => {
@@ -335,7 +339,7 @@ export default function MediaDockV3App() {
       .catch((error: unknown) => {
         if (active) {
           setQualityUnavailable(true)
-          setAuthenticationProblem(authenticationProblemCode(error))
+          setKnownProblem(knownProblemCode(error))
         }
       })
       .finally(() => {
@@ -416,7 +420,7 @@ export default function MediaDockV3App() {
   }, [api, language, mergeOutputDirectory, mergePairSources, mergeRecipeId])
 
   function clearPreparedSource() {
-    setAuthenticationProblem(null)
+    setKnownProblem(null)
     setInspection(null)
     setSelectedRecipe(null)
     setVideoQuality('best')
@@ -461,10 +465,10 @@ export default function MediaDockV3App() {
       let nextInspection: SourceInspection
       if (linkMode === 'multiple') {
         const inspectedLinks = await Promise.all(validMultipleLinks.map((url) => api.inspectSource({ kind: 'network-url', url })))
-        const blockedAuthentication = inspectedLinks.find((result) =>
-          result.status === 'needs-attention' && result.problem.category === 'authentication')
-        if (blockedAuthentication) {
-          setInspection(blockedAuthentication)
+        const blockedProblem = inspectedLinks.find((result) =>
+          result.status === 'needs-attention' && knownProblemCopy(result.problem.code, language))
+        if (blockedProblem) {
+          setInspection(blockedProblem)
           setSelectedRecipe(null)
           return
         }
@@ -546,7 +550,7 @@ export default function MediaDockV3App() {
         setAuthenticationRefreshed(true)
         setAuthenticationImportResult(snapshot.authenticationProfiles.at(-1) ?? null)
         setAuthenticationWasReplaced(replacingExistingProfile)
-        setAuthenticationProblem(null)
+        setKnownProblem(null)
         setDownloadPreflight(null)
         setPreflightProblem(null)
         setActiveTaskId(null)
@@ -602,6 +606,28 @@ export default function MediaDockV3App() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error))
     }
+  }
+
+  function showRuntimeSettings() {
+    setActiveSpace('system')
+    void checkRuntimeUpdates()
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => document.getElementById('md3-runtime-settings')?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+    })
+  }
+
+  function resolveKnownProblem() {
+    if (visibleKnownProblemCode === 'runtime.yt-dlp-python-unsupported') showRuntimeSettings()
+    else if (visibleKnownProblemCode === 'network.authentication-check-unavailable') clearPreparedSource()
+    else showAuthenticationSettings()
+  }
+
+  function renderKnownProblem() {
+    return visibleKnownProblem && <div className="md3-problem" role="alert">
+      <strong>{visibleKnownProblem.title}</strong>
+      <span>{visibleKnownProblem.summary}</span>
+      <button type="button" onClick={resolveKnownProblem}>{visibleKnownProblem.action}</button>
+    </div>
   }
 
   function showAuthenticationSettings() {
@@ -731,6 +757,8 @@ export default function MediaDockV3App() {
     setRuntimeStatus((current) => ({
       ytDlpVersion: result.ytDlp.currentVersion,
       denoVersion: result.deno.currentVersion,
+      ytDlpRepairRequired: result.ytDlp.repairRequired,
+      denoRepairRequired: result.deno.repairRequired,
       restartRequired: Boolean(current?.restartRequired || result.restartRequired),
     }))
     setRuntimeRefreshed(false)
@@ -910,7 +938,7 @@ export default function MediaDockV3App() {
           latestInspections = await Promise.all(plansToCheck.map((candidate) => api.inspectVideoQualities(candidate.source)))
         } catch (error) {
           setPreflightProblem(copy.preflightUnavailable)
-          setAuthenticationProblem(authenticationProblemCode(error))
+          setKnownProblem(knownProblemCode(error))
           throw error
         }
         const authenticationChanged = latestInspections.some((inspectionResult, index) =>
@@ -1020,7 +1048,7 @@ export default function MediaDockV3App() {
                 : copy.start
 
   const primaryDisabled = inspectionRunning
-    || (!workRunning && !workCompleted && (qualityLoading || Boolean(visibleAuthenticationProblem)))
+    || (!workRunning && !workCompleted && (qualityLoading || Boolean(visibleKnownProblem)))
     || (busy && !workRunning)
     || !hasLinkInput
     || planLoading
@@ -1093,15 +1121,9 @@ export default function MediaDockV3App() {
             </div>
           )}
 
-          {visibleAuthenticationProblem && (
-            <div className="md3-problem" role="alert">
-              <strong>{visibleAuthenticationProblem.title}</strong>
-              <span>{visibleAuthenticationProblem.summary}</span>
-              <button type="button" onClick={visibleAuthenticationProblemCode === 'network.authentication-check-unavailable' ? () => clearPreparedSource() : showAuthenticationSettings}>{visibleAuthenticationProblem.action}</button>
-            </div>
-          )}
+          {!readyInspection && renderKnownProblem()}
 
-          {inspection?.status === 'needs-attention' && !visibleAuthenticationProblem && (
+          {inspection?.status === 'needs-attention' && !visibleKnownProblem && (
             <div className="md3-problem" role="status">
               <strong>{inspection.problem.code === 'source.collection.inspect-failed' ? copy.collectionProblem.title : inspection.problem.code === 'source.network.inspect-failed' ? copy.networkInspectionProblem.title : copy.problem}</strong>
               <span>{inspection.problem.code === 'source.collection.inspect-failed' ? copy.collectionProblem.summary : inspection.problem.code === 'source.network.inspect-failed' ? copy.networkInspectionProblem.summary : copy.genericError}</span>
@@ -1210,7 +1232,7 @@ export default function MediaDockV3App() {
                           : qualityInspection?.authenticationProfileDisplayName
                             ? copy.qualityWithProfile(qualityInspection.authenticationProfileDisplayName)
                             : qualityUnavailable
-                              ? copy.qualityUnavailable
+                              ? visibleKnownProblem?.title ?? copy.qualityUnavailable
                               : copy.qualityGuest}</small>
                       </div>
                       <select
@@ -1279,7 +1301,7 @@ export default function MediaDockV3App() {
                         <span>{downloadPreflight}</span>
                       </div>
                     )}
-                    {preflightProblem && (
+                    {preflightProblem && !visibleKnownProblem && (
                       <div className="md3-preflight-result is-problem" role="alert">
                         <i aria-hidden="true" />
                         <span>{preflightProblem}</span>
@@ -1304,7 +1326,8 @@ export default function MediaDockV3App() {
             </div>
           )}
 
-          {errorMessage && !visibleAuthenticationProblem && <div className="md3-error" role="alert"><strong>{copy.genericError}</strong><span>{copy.errorGuidance}</span><details><summary>{copy.technicalDetails}</summary><code>{errorMessage}</code></details></div>}
+          {readyInspection && renderKnownProblem()}
+          {errorMessage && !visibleKnownProblem && <div className="md3-error" role="alert"><strong>{copy.genericError}</strong><span>{copy.errorGuidance}</span><details><summary>{copy.technicalDetails}</summary><code>{errorMessage}</code></details></div>}
 
           <div className="md3-action-row">
             <div className="md3-flow-steps" aria-hidden="true"><span className="is-active" /> <span className={readyInspection ? 'is-active' : ''} /> <span className={activeTask || activeBatch ? 'is-active' : ''} /> <span className={workCompleted ? 'is-active' : ''} /></div>
@@ -1385,7 +1408,7 @@ export default function MediaDockV3App() {
 
           {errorMessage && <div className="md3-error" role="alert"><strong>{copy.genericError}</strong><span>{copy.errorGuidance}</span><details><summary>{copy.technicalDetails}</summary><code>{errorMessage}</code></details></div>}
           <div className="md3-action-row"><div className="md3-flow-steps" aria-hidden="true"><span className={mergePairSources.length > 0 ? 'is-active' : ''} /><span className={mergeOutputDirectory ? 'is-active' : ''} /><span className={mergeActiveTasks.length > 0 ? 'is-active' : ''} /><span className={mergeWorkCompleted ? 'is-active' : ''} /></div><button className="md3-primary-action md3-merge-primary" disabled={mergeBusy || mergePlanLoading || Boolean(mergePairSources.length > 0 && mergeOutputDirectory && mergePlans.length !== mergePairSources.length)} onClick={() => void runMergePrimaryAction()}>{mergePrimaryLabel}<span aria-hidden="true">→</span></button></div>
-          {mergeActiveTasks.length > 0 && <TaskList tasks={mergeActiveTasks} authenticationProfiles={workspace.authenticationProfiles} deliverables={workspace.deliverables} language={language} revealingDeliverableId={revealingDeliverableId} revealedDeliverableId={revealedDeliverableId} taskLogExportingId={taskLogExportingId} taskLogExportedId={taskLogExportedId} onRevealDeliverable={revealDeliverable} onExportTaskDiagnostics={exportTaskDiagnostics} onUpdateAuthentication={updateTaskAuthentication} onRetryTask={prepareTaskRetry} />}
+          {mergeActiveTasks.length > 0 && <TaskList tasks={mergeActiveTasks} authenticationProfiles={workspace.authenticationProfiles} deliverables={workspace.deliverables} language={language} revealingDeliverableId={revealingDeliverableId} revealedDeliverableId={revealedDeliverableId} taskLogExportingId={taskLogExportingId} taskLogExportedId={taskLogExportedId} onRevealDeliverable={revealDeliverable} onExportTaskDiagnostics={exportTaskDiagnostics} onUpdateAuthentication={updateTaskAuthentication} onRetryTask={prepareTaskRetry} onRepairRuntime={showRuntimeSettings} />}
         </div>
       </SpacePage>
     )
@@ -1395,7 +1418,7 @@ export default function MediaDockV3App() {
     if (activeSpace === 'workbench') return renderWorkbench()
     if (activeSpace === 'merge') return renderMergeWorkbench()
     if (activeSpace === 'tasks') {
-      return <SpacePage><div className="md3-history-toolbar"><div><strong>{copy.clearHistoryWarning}</strong><span>{copy.clearHistoryHint}</span></div><button className="md3-history-clear" disabled={terminalTaskCount === 0 || historyClearing} onClick={() => void clearTaskHistory()}>{historyClearing ? copy.clearingHistory : historyClearConfirming ? copy.confirmClearHistory : copy.clearHistory}</button></div>{workspace.tasks.length === 0 ? <p className="md3-empty-line">{copy.noActivity}</p> : <TaskList tasks={[...workspace.tasks].reverse()} authenticationProfiles={workspace.authenticationProfiles} deliverables={workspace.deliverables} language={language} revealingDeliverableId={revealingDeliverableId} revealedDeliverableId={revealedDeliverableId} taskLogExportingId={taskLogExportingId} taskLogExportedId={taskLogExportedId} onRevealDeliverable={revealDeliverable} onExportTaskDiagnostics={exportTaskDiagnostics} onUpdateAuthentication={updateTaskAuthentication} onRetryTask={prepareTaskRetry} />}</SpacePage>
+      return <SpacePage><div className="md3-history-toolbar"><div><strong>{copy.clearHistoryWarning}</strong><span>{copy.clearHistoryHint}</span></div><button className="md3-history-clear" disabled={terminalTaskCount === 0 || historyClearing} onClick={() => void clearTaskHistory()}>{historyClearing ? copy.clearingHistory : historyClearConfirming ? copy.confirmClearHistory : copy.clearHistory}</button></div>{workspace.tasks.length === 0 ? <p className="md3-empty-line">{copy.noActivity}</p> : <TaskList tasks={[...workspace.tasks].reverse()} authenticationProfiles={workspace.authenticationProfiles} deliverables={workspace.deliverables} language={language} revealingDeliverableId={revealingDeliverableId} revealedDeliverableId={revealedDeliverableId} taskLogExportingId={taskLogExportingId} taskLogExportedId={taskLogExportedId} onRevealDeliverable={revealDeliverable} onExportTaskDiagnostics={exportTaskDiagnostics} onUpdateAuthentication={updateTaskAuthentication} onRetryTask={prepareTaskRetry} onRepairRuntime={showRuntimeSettings} />}</SpacePage>
     }
     return (
       <SpacePage>
@@ -1403,7 +1426,7 @@ export default function MediaDockV3App() {
         <div className="md3-system-list">
           <article><span>01</span><div><strong>{copy.engine}</strong><small>{copy.engineValue}</small></div><b>{copy.revision} {workspace.revision}</b></article>
           <article><span>02</span><div><strong>{copy.dataBoundary}</strong><small>{copy.dataBoundaryValue}</small></div><b>{copy.localBadge.toUpperCase()}</b></article>
-          <article className="md3-runtime-maintenance">
+          <article id="md3-runtime-settings" className="md3-runtime-maintenance">
             <span>03</span>
             <div>
               <strong>{copy.runtime}</strong>
@@ -1412,7 +1435,7 @@ export default function MediaDockV3App() {
                 <div className="md3-runtime-results">
                   <span>yt-dlp {runtimeStatus.ytDlpVersion ?? copy.notInstalled}{runtimeUpdates?.ytDlp.latestVersion && runtimeUpdates.ytDlp.latestVersion !== runtimeStatus.ytDlpVersion ? ` → ${runtimeUpdates.ytDlp.latestVersion}` : ''}</span>
                   <span>Deno {runtimeStatus.denoVersion ?? copy.notInstalled}{runtimeUpdates?.deno.latestVersion && runtimeUpdates.deno.latestVersion !== runtimeStatus.denoVersion ? ` → ${runtimeUpdates.deno.latestVersion}` : ''}</span>
-                  <b role="status">{runtimeRestartRequired ? copy.runtimeRestartRequired : runtimeUpdates ? runtimeUpdateAvailable ? copy.runtimeUpdateAvailable : copy.runtimeUpToDate : copy.runtimeLocalStatus}</b>
+                  <b role="status">{runtimeNeedsRepair ? copy.runtimeRepairRequired : runtimeRestartRequired ? copy.runtimeRestartRequired : runtimeUpdates ? runtimeUpdateAvailable ? copy.runtimeUpdateAvailable : copy.runtimeUpToDate : copy.runtimeLocalStatus}</b>
                 </div>
               )}
               {runtimeRefreshed && <small className="md3-setting-feedback" role="status">{copy.runtimeRefreshed}</small>}
@@ -1424,8 +1447,8 @@ export default function MediaDockV3App() {
               {restartBlocked && !restartPending && <small className="md3-runtime-source-hint">{copy.restartBlocked}</small>}
               {runtimeUpdates && runtimeUpdateAvailable && (
                 <>
-                  <button className="md3-system-action is-primary" disabled={runtimeBusy} onClick={() => void updateRuntimeTools('official')}>{runtimeUpdatingSource === 'official' ? copy.updatingOfficialRuntimeTools : copy.updateFromOfficial}</button>
-                  <button className="md3-system-action" disabled={runtimeBusy || !runtimeMirrorBaseUrl.trim()} onClick={() => void updateRuntimeTools('mirror')}>{runtimeUpdatingSource === 'mirror' ? copy.updatingMirrorRuntimeTools : copy.updateFromMirror}</button>
+                  <button className="md3-system-action is-primary" disabled={runtimeBusy} onClick={() => void updateRuntimeTools('official')}>{runtimeUpdatingSource === 'official' ? copy.updatingOfficialRuntimeTools : runtimeNeedsRepair ? copy.repairFromOfficial : copy.updateFromOfficial}</button>
+                  <button className="md3-system-action" disabled={runtimeBusy || !runtimeMirrorBaseUrl.trim()} onClick={() => void updateRuntimeTools('mirror')}>{runtimeUpdatingSource === 'mirror' ? copy.updatingMirrorRuntimeTools : runtimeNeedsRepair ? copy.repairFromMirror : copy.updateFromMirror}</button>
                   <label className="md3-runtime-mirror-field">
                     <span>{copy.runtimeMirrorLabel}</span>
                     <input type="url" value={runtimeMirrorBaseUrl} placeholder={runtimeUpdates.defaultMirrorBaseUrl} onChange={(event) => changeRuntimeMirrorBaseUrl(event.target.value)} spellCheck={false} />
@@ -1543,6 +1566,7 @@ function TaskList({
   onExportTaskDiagnostics,
   onUpdateAuthentication,
   onRetryTask,
+  onRepairRuntime,
 }: {
   tasks: readonly MediaTaskSnapshot[]
   authenticationProfiles: WorkspaceSnapshot['authenticationProfiles']
@@ -1556,6 +1580,7 @@ function TaskList({
   onExportTaskDiagnostics: (taskId: string) => Promise<void>
   onUpdateAuthentication: (task: MediaTaskSnapshot) => void
   onRetryTask: (task: MediaTaskSnapshot) => void
+  onRepairRuntime: () => void
 }) {
   const copy = messages[language]
   return <div className="md3-task-list">{tasks.map((task) => {
@@ -1583,7 +1608,7 @@ function TaskList({
         : profile
           ? copy.taskUsesProfile(profile.displayName)
           : copy.taskGuestMode
-    const expiredAuthentication = task.problem?.category === 'authentication' ? authenticationProblemCopy(task.problem.code, language) : null
+    const expiredAuthentication = task.problem?.category === 'authentication' ? knownProblemCopy(task.problem.code, language) : null
     const networkProblem = task.problem?.code === 'network.authentication-check-unavailable'
       ? copy.authenticationCheckUnavailable
       : task.problem?.code === 'network.tls-interrupted'
@@ -1593,7 +1618,8 @@ function TaskList({
         : task.problem?.code === 'network.acquisition.failed'
           ? copy.networkAcquisitionFailed
           : null
-    const visibleProblem = expiredAuthentication ?? networkProblem
+    const runtimeProblem = task.problem?.category === 'runtime' ? knownProblemCopy(task.problem.code, language) : null
+    const visibleProblem = runtimeProblem ?? expiredAuthentication ?? networkProblem
     const compatibilityConnectionUsed = task.acquisition?.connection === 'youtube-embedded'
       ? copy.compatibilityConnectionUsed
       : null
@@ -1611,7 +1637,7 @@ function TaskList({
           <strong>{visibleProblem.title}</strong>
           <span>{visibleProblem.summary}</span>
           <small>{task.problem?.code}</small>
-          <button type="button" onClick={() => expiredAuthentication ? onUpdateAuthentication(task) : onRetryTask(task)}>{visibleProblem.action}</button>
+          <button type="button" onClick={() => runtimeProblem ? onRepairRuntime() : expiredAuthentication ? onUpdateAuthentication(task) : onRetryTask(task)}>{visibleProblem.action}</button>
         </div>}
         {downloadProgress
           ? <div className="md3-task-download-progress" role="progressbar" aria-label={copy.downloadProgress} aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadProgress.percent}><i><span style={{ width: `${downloadProgress.percent}%` }} /></i><small>{progressDetails.join(' · ')}</small></div>

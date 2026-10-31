@@ -62,6 +62,16 @@ test('subtitle sign-in warnings and preview titles do not block accessible full 
   }, 'WARNING: Subtitles are only available when logged in.')
 })
 
+test('unsupported Python becomes a runtime repair problem in inspection and quality preflight', async () => {
+  await withFakeYtDlp({ id: 'runtime', title: 'Fixture', duration: 60 }, async (ytDlp) => {
+    const inspection = await inspectNetworkMediaSource('https://media.example/watch?v=runtime', ytDlp)
+    assert.equal(inspection.status, 'needs-attention')
+    assert.equal(inspection.problem.category, 'runtime')
+    assert.equal(inspection.problem.actions[0].kind, 'repair-runtime')
+    await assert.rejects(inspectNetworkVideoQualities('https://media.example/watch?v=runtime', ytDlp), /runtime\.yt-dlp-python-unsupported/)
+  }, 'ImportError: You are using an unsupported version of Python. Only Python versions 3.11 and above are supported by yt-dlp')
+})
+
 test('Quality Preview reports an unknown estimate when the selected format has no reliable size metadata', async () => {
   const qualities = await withFakeYtDlp({
     duration: 1_200,

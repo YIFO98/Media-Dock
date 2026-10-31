@@ -1,7 +1,7 @@
 const { contextBridge } = require('electron')
 
 const action = process.env.MEDIA_DOCK_RENDERER_ACTION
-const authenticationRefreshAction = ['v3CookieRefresh', 'v3PreviewRecovery', 'v3QualityAuthenticationRecovery'].includes(action)
+const authenticationRefreshAction = ['v3CookieRefresh', 'v3PreviewRecovery', 'v3QualityAuthenticationRecovery', 'v3CookiePreflightExpired'].includes(action)
 let cookiesRefreshed = false
 const noopSubscription = () => () => {}
 const reject = (message) => async () => {
@@ -277,6 +277,9 @@ const mediaDockApi = {
   },
   getRuntimeStatus: async () => {
     v3RuntimeStatusReads += 1
+    if (['v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem'].includes(action)) return {
+      ytDlpVersion: '2026.10.26', denoVersion: '2.9.8', ytDlpRepairRequired: !v3RuntimeUpdated, denoRepairRequired: false, restartRequired: v3RuntimeUpdated,
+    }
     if (action === 'v3SettingsRefresh' && v3RuntimeStatusReads > 1) {
       if (v3RuntimeChecks !== 0) throw new Error('Refresh unexpectedly requested online releases')
       await new Promise((resolve) => setTimeout(resolve, 200))
@@ -362,7 +365,7 @@ const mediaDockApi = {
   exportTaskDiagnostics: async (input) => action === 'v3TaskDiagnostics' && input?.taskId === 'task-expired-cookie'
     ? '/Volumes/Test/Downloads/media-dock-task-task-expired-cookie-20260818.txt'
     : null,
-  inspectSource: async (input) => (action === 'v3SlowInspection' && await new Promise((resolve) => setTimeout(resolve, 1800)), action === 'v3PreviewRecovery' && !cookiesRefreshed
+  inspectSource: async (input) => action === 'v3RuntimeSourceProblem' ? { status: 'needs-attention', problem: {code:'runtime.yt-dlp-python-unsupported',category:'runtime',stage:'preparing',titleKey:'runtime',summaryKey:'runtime',actions:[{id:'repair-runtime',kind:'repair-runtime'}]} } : (action === 'v3SlowInspection' && await new Promise((resolve) => setTimeout(resolve, 1800)), action === 'v3PreviewRecovery' && !cookiesRefreshed
     ? { status: 'needs-attention', problem: { code: 'authentication.preview-only', category: 'authentication', stage: 'preparing', titleKey: 'problem.authenticationPreviewOnly.title', summaryKey: 'problem.authenticationPreviewOnly.summary', actions: [{ id: 'update-authentication', kind: 'update-authentication' }] } }
     : action === 'v3LoginCheckUnavailable'
       ? { status: 'needs-attention', problem: { code: 'network.authentication-check-unavailable', category: 'network', stage: 'preparing', titleKey: 'problem.authenticationCheckUnavailable.title', summaryKey: 'problem.authenticationCheckUnavailable.summary', actions: [{id:'retry-task',kind:'retry-task'}] } }
@@ -418,7 +421,7 @@ const mediaDockApi = {
           { id: 'keep-original', deliverableKind: 'source', extension: 'wav' },
         ],
       }
-    : authenticationRefreshAction || action === 'v3NetworkFlow' || action === 'v3DefaultDesktop' || action === 'v3SlowInspection' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection' || action === 'v3PickerFailures'
+    : authenticationRefreshAction || ['v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem'].includes(action) || action === 'v3NetworkFlow' || action === 'v3DefaultDesktop' || action === 'v3SlowInspection' || action === 'v3MultipleLinksFlow' || action === 'v3PreflightMismatch' || action === 'v3QualitySelection' || action === 'v3PickerFailures'
       ? {
           status: 'ready',
           source: {
@@ -487,6 +490,8 @@ const mediaDockApi = {
       : null),
   inspectVideoQualities: async (source) => {
     v3QualityInspectionCalls += 1
+    if (action === 'v3RuntimeEnvironmentProblem' || (action === 'v3RuntimePreflightProblem' && v3QualityInspectionCalls > 1)) throw new Error('[runtime.yt-dlp-python-unsupported] Unsupported Python version')
+    if (action === 'v3CookiePreflightExpired' && v3QualityInspectionCalls > 1 && !cookiesRefreshed) throw new Error('[authentication.cookies-expired] Cookies are no longer valid')
     if (action === 'v3QualityAuthenticationRecovery' && !cookiesRefreshed) throw new Error('[authentication.preview-only] Only preview format is available')
     return {
       availableHeights: action === 'v3CollectionGrouping' && source.sourceId === 'pv-1' ? [1440, 1080, 720] : [2160, 1080, 720],
@@ -539,6 +544,11 @@ const mediaDockApi = {
   },
   checkRuntimeUpdates: async () => {
     v3RuntimeChecks += 1
+    if (['v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem'].includes(action)) return {
+      ytDlp: { tool: 'yt-dlp', currentVersion: '2026.10.26', latestVersion: '2026.10.26', updateAvailable: !v3RuntimeUpdated, repairRequired: !v3RuntimeUpdated, releaseUrl: null, detail: 'yt-dlp' },
+      deno: { tool: 'deno', currentVersion: '2.9.8', latestVersion: '2.9.8', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'deno' },
+      restartRequired: false, defaultMirrorBaseUrl: 'https://gh-proxy.com/',
+    }
     if (action === 'v3RuntimeCheck' && v3RuntimeChecks > 1) await new Promise((resolve) => setTimeout(resolve, 400))
     return v3RuntimeUpdated ? {
       ytDlp: { tool: 'yt-dlp', currentVersion: '2026.08.01', latestVersion: '2026.08.01', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'yt-dlp' },
@@ -553,6 +563,16 @@ const mediaDockApi = {
     }
   },
   updateRuntimeTools: async (input) => {
+    if (['v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem'].includes(action)) {
+      if (input.source !== 'official') throw new Error('Expected an explicit official repair')
+      v3RuntimeUpdated = true
+      return {
+        ytDlp: { tool: 'yt-dlp', currentVersion: '2026.10.26', latestVersion: '2026.10.26', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'yt-dlp' },
+        deno: { tool: 'deno', currentVersion: '2.9.8', latestVersion: '2.9.8', updateAvailable: false, repairRequired: false, releaseUrl: null, detail: 'deno' },
+        restartRequired: true, defaultMirrorBaseUrl: 'https://gh-proxy.com/',
+      }
+    }
+
     if (action === 'v3RuntimeCheck' && (input?.source !== 'mirror' || input.mirrorBaseUrl !== 'https://mirror.example/ghproxy/')) {
       throw new Error('Renderer did not pass the selected custom runtime mirror')
     }
@@ -566,6 +586,7 @@ const mediaDockApi = {
     }
   },
   createTask: async (plan) => {
+    if (['v3RuntimeEnvironmentProblem', 'v3RuntimePreflightProblem', 'v3RuntimeSourceProblem'].includes(action)) throw new Error('Runtime failure must not create a Media Task')
     if (authenticationRefreshAction && (!cookiesRefreshed || plan.authenticationProfileId !== v3Workspace.authenticationProfiles[0]?.id)) throw new Error('Task Plan still uses the old Authentication Profile')
     if (action === 'v3PreflightMismatch') throw new Error('Cookie preflight was bypassed and an invalid task reached the queue')
     if (action === 'v3QualitySelection' && v3QualityInspectionCalls < 2) throw new Error('Selected quality was not checked again before queue creation')
